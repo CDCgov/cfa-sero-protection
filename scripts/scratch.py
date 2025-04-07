@@ -8,7 +8,7 @@ import polars as pl
 # %% Function to simulate a titer distribution
 def simulate_titers(
     mns: List[float,], sds: List[float,], N: List[float,], seed: int
-) -> np.ndarray:
+) -> pl.DataFrame:
     """
     Simulate antibody titers drawn from a (mixture of) lognormal distribution(s).
     This is just to have some numbers to use, not necessarily to be realistic.
@@ -27,28 +27,32 @@ def simulate_titers(
             axis=0,
         )
 
-    return titer_samples
+    titers = pl.DataFrame(
+        {"titer": titer_samples, "id": np.arange(titer_samples.shape[0]) + 1}
+    )
+
+    return titers
 
 
 # %% Function to calculate risk from parameters and titers
 def calculate_risk(
-    midpoint: float,
-    steepness: float,
-    min_risk: float,
-    max_risk: float,
-    titer: float,
+    midpoint: pl.Expr,
+    steepness: pl.Expr,
+    min_risk: pl.Expr,
+    max_risk: pl.Expr,
+    titer: pl.Expr,
 ):
     """
     Calculate risk from the 4 parameters of the double-scaled logit
     and an antibody titer.
     """
     return min_risk + (max_risk - min_risk) / (
-        1 + np.exp(steepness * (titer - midpoint))
+        1 + (steepness * (titer - midpoint)).exp()
     )
 
 
 # %% Function to calculate protection from risk
-def calculate_protection(risk_x: float, risk_0: float):
+def calculate_protection(risk_x: pl.Expr, risk_0: pl.Expr):
     """
     Calculate protection using the odds ratio definition,
     using titer = 0 as the baseline for comparison.
@@ -88,10 +92,40 @@ def simulate_risk_parameters(
     return pars
 
 
-# %% Make a titer distribution
+# %% Simulate a titer distribution and a risk curve
 titer_samples = simulate_titers(
     mns=[0.5, 1.0, 1.5, 2.0],
     sds=[0.25, 0.25, 0.25, 0.25],
     N=[100, 100, 100, 100],
     seed=1,
+)
+
+risk_samples = simulate_risk_parameters(
+    midpoint_hi=100,
+    midpoint_lo=75,
+    steepness_hi=3,
+    steepness_lo=1,
+    min_risk_hi=0.25,
+    min_risk_lo=0.15,
+    max_risk_hi=0.90,
+    max_risk_lo=0.80,
+    N=100,
+    seed=1,
+)
+
+# %% Calculate risk and protection for each posterior sample for each titer
+protection_samples = (
+    risk_samples.join(titer_samples, how="cross")
+    .with_columns(
+        risk=calculate_risk(
+            pl.col("midpoint"),
+            pl.col("steepness"),
+            pl.col("min_risk"),
+            pl.col("max_risk"),
+            pl.col("titer"),
+        )
+    )
+    .with_columns(
+        protection=calculate_protection(pl.col("risk"), pl.col("max_risk"))
+    )
 )
