@@ -13,16 +13,17 @@ def simulate_titers(
     Simulate antibody titers drawn from a (mixture of) lognormal distribution(s).
     This is just to have some numbers to use, not necessarily to be realistic.
     """
-    assert len(mns) == len(sds) & len(mns) == len(N), (
-        "Means, standard deviations, and sample size must all be the same length."
-    )
+    max_length = max(len(mns), len(sds), len(N))
+    mns_arr = np.resize(mns, max_length)
+    sds_arr = np.resize(sds, max_length)
+    N_arr = np.resize(N, max_length)
     rng = np.random.default_rng(seed)
     titer_samples = np.array([])
-    for i in range(len(mns)):
+    for i in range(len(mns_arr)):
         titer_samples = np.concatenate(
             (
                 titer_samples,
-                10 ** rng.normal(mns[i], sds[i], N[i]),
+                10 ** rng.normal(mns_arr[i], sds_arr[i], N_arr[i]),
             ),
             axis=0,
         )
