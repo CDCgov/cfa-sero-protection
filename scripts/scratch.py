@@ -2,6 +2,7 @@
 from typing import List
 
 import numpy as np
+import polars as pl
 
 
 # %% Function to simulate a titer distribution
@@ -57,23 +58,34 @@ def calculate_protection(risk_x: float, risk_0: float):
 
 # %% Function to simulate parameters of a risk curve
 def simulate_risk_parameters(
-    midpoint_mn: float,
-    midpoint_sd: float,
-    steepness_mn: float,
-    steepness_sd: float,
-    min_risk_mn: float,
-    min_risk_sd: float,
-    max_risk_mn: float,
-    max_risk_sd: float,
+    midpoint_hi: float,
+    midpoint_lo: float,
+    steepness_hi: float,
+    steepness_lo: float,
+    min_risk_hi: float,
+    min_risk_lo: float,
+    max_risk_hi: float,
+    max_risk_lo: float,
     N: int,
     seed: int,
 ):
     """
     Simulate N draws from a posterior distribution of fit parameters
-    for a double-scaled logit risk curve
+    for a double-scaled logit risk curve. This posterior is not meant
+    to be realistic - it is just an object to work with.
     """
 
-    return None
+    rng = np.random.default_rng(seed)
+    pars = pl.DataFrame(
+        {
+            "midpoint": rng.uniform(midpoint_lo, midpoint_hi, N),
+            "steepness": rng.uniform(steepness_lo, steepness_hi, N),
+            "min_risk": rng.uniform(min_risk_lo, min_risk_hi, N),
+            "max_risk": rng.uniform(max_risk_lo, max_risk_hi, N),
+        }
+    )
+
+    return pars
 
 
 # %% Make a titer distribution
