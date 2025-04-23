@@ -142,7 +142,7 @@ alt.Chart(titer_samples[["titer"]]).transform_density(
     y="Density:Q",
 )
 
-# %% Plot protection function
+# %% Plot risk function
 x = pl.DataFrame(
     {"x": np.arange(np.ceil(titer_samples[["titer"]].max())[0, 0])}
 )
@@ -166,4 +166,18 @@ alt.Chart(risk_curves).mark_line().encode(
     y="y",
 )
 
-# %%
+# %% Plot protection function
+protection_curves = risk_curves.with_columns(
+    prot=calculate_protection(pl.col("y"), pl.col("y").max()).over("id")
+)
+mean_protection_curve = (
+    protection_curves.group_by("x").agg(prot=pl.col("prot").mean()).sort("x")
+)
+alt.Chart(protection_curves).mark_line().encode(
+    x=alt.X("x", title="Titer"),
+    y=alt.Y("prot", title="Protection"),
+    opacity=alt.value(0.3),
+) + alt.Chart(mean_protection_curve).mark_line().encode(
+    x="x",
+    y="prot",
+)
