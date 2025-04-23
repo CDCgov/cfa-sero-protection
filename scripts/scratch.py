@@ -1,6 +1,7 @@
 # %% Dependencies
 from typing import List
 
+import altair as alt
 import numpy as np
 import polars as pl
 
@@ -63,14 +64,14 @@ def calculate_protection(risk_x: pl.Expr, risk_0: pl.Expr):
 
 # %% Function to simulate parameters of a risk curve
 def simulate_risk_parameters(
-    midpoint_hi: float,
-    midpoint_lo: float,
-    steepness_hi: float,
-    steepness_lo: float,
-    min_risk_hi: float,
-    min_risk_lo: float,
-    max_risk_hi: float,
-    max_risk_lo: float,
+    midpoint_mn: float,
+    midpoint_sd: float,
+    steepness_mn: float,
+    steepness_sd: float,
+    min_risk_mn: float,
+    min_risk_sd: float,
+    max_risk_mn: float,
+    max_risk_sd: float,
     N: int,
     seed: int,
 ):
@@ -83,10 +84,11 @@ def simulate_risk_parameters(
     rng = np.random.default_rng(seed)
     pars = pl.DataFrame(
         {
-            "midpoint": rng.uniform(midpoint_lo, midpoint_hi, N),
-            "steepness": rng.uniform(steepness_lo, steepness_hi, N),
-            "min_risk": rng.uniform(min_risk_lo, min_risk_hi, N),
-            "max_risk": rng.uniform(max_risk_lo, max_risk_hi, N),
+            "midpoint": rng.normal(midpoint_mn, midpoint_sd, N),
+            "steepness": rng.normal(steepness_mn, steepness_sd, N),
+            "min_risk": rng.normal(min_risk_mn, min_risk_sd, N),
+            "max_risk": rng.normal(max_risk_mn, max_risk_sd, N),
+            "id": np.arange(N),
         }
     )
 
@@ -102,14 +104,14 @@ titer_samples = simulate_titers(
 )
 
 risk_samples = simulate_risk_parameters(
-    midpoint_hi=100,
-    midpoint_lo=75,
-    steepness_hi=3,
-    steepness_lo=1,
-    min_risk_hi=0.25,
-    min_risk_lo=0.15,
-    max_risk_hi=0.90,
-    max_risk_lo=0.80,
+    midpoint_mn=80,
+    midpoint_sd=10,
+    steepness_mn=0.1,
+    steepness_sd=0.02,
+    min_risk_mn=0.2,
+    min_risk_sd=0.04,
+    max_risk_mn=0.8,
+    max_risk_sd=0.04,
     N=100,
     seed=1,
 )
@@ -130,3 +132,38 @@ protection_samples = (
         protection=calculate_protection(pl.col("risk"), pl.col("max_risk"))
     )
 )
+
+# %% Plot titer distribution
+alt.Chart(titer_samples[["titer"]]).transform_density(
+    "titer",
+    as_=["Titer", "Density"],
+).mark_line(color="green").encode(
+    x="Titer:Q",
+    y="Density:Q",
+)
+
+# %% Plot protection function
+x = pl.DataFrame(
+    {"x": np.arange(np.ceil(titer_samples[["titer"]].max())[0, 0])}
+)
+risk_curves = risk_samples.join(x, how="cross").with_columns(
+    y=calculate_risk(
+        pl.col("midpoint"),
+        pl.col("steepness"),
+        pl.col("min_risk"),
+        pl.col("max_risk"),
+        pl.col("x"),
+    )
+)
+mean_risk_curve = risk_curves.group_by("x").agg(y=pl.col("y").mean()).sort("x")
+alt.data_transformers.disable_max_rows()
+alt.Chart(risk_curves).mark_line().encode(
+    x=alt.X("x", title="Titer"),
+    y=alt.Y("y", title="Risk"),
+    opacity=alt.value(0.3),
+) + alt.Chart(mean_risk_curve).mark_line().encode(
+    x="x",
+    y="y",
+)
+
+# %%
