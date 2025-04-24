@@ -181,3 +181,43 @@ alt.Chart(protection_curves).mark_line().encode(
     x="x",
     y="prot",
 )
+
+# %% Plot population distribution fo risk
+population_risk = risk_samples.join(
+    titer_samples.select("titer"), how="cross"
+).with_columns(
+    risk=calculate_risk(
+        pl.col("midpoint"),
+        pl.col("steepness"),
+        pl.col("min_risk"),
+        pl.col("max_risk"),
+        pl.col("titer"),
+    )
+)
+alt.data_transformers.disable_max_rows()
+alt.Chart(population_risk.select(["risk", "id"])).transform_density(
+    "risk",
+    as_=["Risk", "Density"],
+    extent=[0, 1],
+    bandwidth=0.1,
+    groupby=["id"],
+).mark_line(color="green", opacity=0.3).encode(
+    x="Risk:Q",
+    y="Density:Q",
+)
+
+# %% Plot population protection distribution
+population_protection = population_risk.with_columns(
+    prot=calculate_protection(pl.col("risk"), pl.col("risk").max()).over("id")
+)
+alt.data_transformers.disable_max_rows()
+alt.Chart(population_protection.select(["prot", "id"])).transform_density(
+    "prot",
+    as_=["Protection", "Density"],
+    extent=[0, 1],
+    bandwidth=0.1,
+    groupby=["id"],
+).mark_line(color="green", opacity=0.3).encode(
+    x="Protection:Q",
+    y="Density:Q",
+)
