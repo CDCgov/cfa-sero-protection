@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 
 
-# %% Function to simulate a titer distribution
+# %% Create functions
 def simulate_titers(
     mns: List[float,], sds: List[float,], N: List[float,], seed: int
 ) -> pl.DataFrame:
@@ -36,7 +36,6 @@ def simulate_titers(
     return titers
 
 
-# %% Function to calculate risk from parameters and titers
 def calculate_risk(
     midpoint: pl.Expr,
     steepness: pl.Expr,
@@ -53,7 +52,6 @@ def calculate_risk(
     )
 
 
-# %% Function to calculate protection from risk
 def calculate_protection(risk_x: pl.Expr, risk_0: pl.Expr):
     """
     Calculate protection using the odds ratio definition,
@@ -62,7 +60,6 @@ def calculate_protection(risk_x: pl.Expr, risk_0: pl.Expr):
     return 1 - (risk_x / (1 - risk_x) / (risk_0 / (1 - risk_0)))
 
 
-# %% Function to simulate parameters of a risk curve
 def simulate_risk_parameters(
     midpoint_mn: float,
     midpoint_sd: float,
@@ -97,17 +94,17 @@ def simulate_risk_parameters(
 
 # %% Simulate a titer distribution and a risk curve
 titer_samples = simulate_titers(
-    mns=[0.5, 1.0, 1.5, 2.0],
-    sds=[0.25, 0.25, 0.25, 0.25],
-    N=[100, 100, 100, 100],
+    mns=[0.5, 1.0, 1.5, 2.0, 1.5],
+    sds=[0.25, 0.25, 0.25, 0.25, 0.5],
+    N=[100, 100, 100, 100, 100],
     seed=1,
 )
 
 risk_samples = simulate_risk_parameters(
-    midpoint_mn=80,
+    midpoint_mn=120,
     midpoint_sd=10,
-    steepness_mn=0.1,
-    steepness_sd=0.02,
+    steepness_mn=0.05,
+    steepness_sd=0.01,
     min_risk_mn=0.2,
     min_risk_sd=0.04,
     max_risk_mn=0.8,
@@ -116,9 +113,86 @@ risk_samples = simulate_risk_parameters(
     seed=1,
 )
 
-# %% Calculate risk and protection for each posterior sample for each titer
-protection_samples = (
-    risk_samples.join(titer_samples, how="cross")
+# %% Plot titer distribution
+titer_dist = (
+    alt.Chart(titer_samples[["titer"]])
+    .transform_density(
+        "titer",
+        as_=["Titer", "Density"],
+    )
+    .mark_line(color="green")
+    .encode(
+        x="Titer:Q",
+        y="Density:Q",
+    )
+)
+
+titer_dist.display()
+
+# %% Plot risk and protection curves
+curves = (
+    risk_samples.join(
+        pl.DataFrame(
+            {
+                "dummy_titer": np.arange(
+                    np.ceil(titer_samples[["titer"]].max())[0, 0]
+                )
+            }
+        ),
+        how="cross",
+    )
+    .with_columns(
+        risk=calculate_risk(
+            pl.col("midpoint"),
+            pl.col("steepness"),
+            pl.col("min_risk"),
+            pl.col("max_risk"),
+            pl.col("dummy_titer"),
+        )
+    )
+    .with_columns(
+        prot=calculate_protection(pl.col("risk"), pl.col("risk").max()).over(
+            "id"
+        )
+    )
+)
+
+mean_risk = (
+    curves.group_by("dummy_titer")
+    .agg(risk=pl.col("risk").mean())
+    .sort("dummy_titer")
+)
+
+mean_prot = (
+    curves.group_by("dummy_titer")
+    .agg(prot=pl.col("prot").mean())
+    .sort("dummy_titer")
+)
+
+alt.data_transformers.disable_max_rows()
+
+risk_curve = alt.Chart(curves).mark_line(opacity=0.3).encode(
+    x=alt.X("dummy_titer:Q", title="Titer"),
+    y=alt.Y("risk:Q", title="Risk"),
+) + alt.Chart(mean_risk).mark_line(opacity=1.0).encode(
+    x="dummy_titer:Q",
+    y="risk:Q",
+)
+
+prot_curve = alt.Chart(curves).mark_line(opacity=0.3).encode(
+    x=alt.X("dummy_titer:Q", title="Titer"),
+    y=alt.Y("prot:Q", title="Protection"),
+) + alt.Chart(mean_prot).mark_line(opacity=1.0).encode(
+    x="dummy_titer:Q",
+    y="prot:Q",
+)
+
+risk_curve.display()
+prot_curve.display()
+
+# %% Plot population distributions of risk and protection
+pop_dists = (
+    risk_samples.join(titer_samples.select("titer"), how="cross")
     .with_columns(
         risk=calculate_risk(
             pl.col("midpoint"),
@@ -129,95 +203,45 @@ protection_samples = (
         )
     )
     .with_columns(
-        protection=calculate_protection(pl.col("risk"), pl.col("max_risk"))
+        prot=calculate_protection(pl.col("risk"), pl.col("risk").max()).over(
+            "id"
+        )
     )
 )
 
-# %% Plot titer distribution
-alt.Chart(titer_samples[["titer"]]).transform_density(
-    "titer",
-    as_=["Titer", "Density"],
-).mark_line(color="green").encode(
-    x="Titer:Q",
-    y="Density:Q",
-)
+alt.data_transformers.disable_max_rows()
 
-# %% Plot risk function
-x = pl.DataFrame(
-    {"x": np.arange(np.ceil(titer_samples[["titer"]].max())[0, 0])}
-)
-risk_curves = risk_samples.join(x, how="cross").with_columns(
-    y=calculate_risk(
-        pl.col("midpoint"),
-        pl.col("steepness"),
-        pl.col("min_risk"),
-        pl.col("max_risk"),
-        pl.col("x"),
+risk_dist = (
+    alt.Chart(pop_dists.select(["risk", "id"]))
+    .transform_density(
+        "risk",
+        as_=["Risk", "Density"],
+        extent=[0, 1],
+        bandwidth=0.1,
+        groupby=["id"],
+    )
+    .mark_line(color="green", opacity=0.3)
+    .encode(
+        x="Risk:Q",
+        y="Density:Q",
     )
 )
-mean_risk_curve = risk_curves.group_by("x").agg(y=pl.col("y").mean()).sort("x")
-alt.data_transformers.disable_max_rows()
-alt.Chart(risk_curves).mark_line().encode(
-    x=alt.X("x", title="Titer"),
-    y=alt.Y("y", title="Risk"),
-    opacity=alt.value(0.3),
-) + alt.Chart(mean_risk_curve).mark_line().encode(
-    x="x",
-    y="y",
-)
 
-# %% Plot protection function
-protection_curves = risk_curves.with_columns(
-    prot=calculate_protection(pl.col("y"), pl.col("y").max()).over("id")
-)
-mean_protection_curve = (
-    protection_curves.group_by("x").agg(prot=pl.col("prot").mean()).sort("x")
-)
-alt.Chart(protection_curves).mark_line().encode(
-    x=alt.X("x", title="Titer"),
-    y=alt.Y("prot", title="Protection"),
-    opacity=alt.value(0.3),
-) + alt.Chart(mean_protection_curve).mark_line().encode(
-    x="x",
-    y="prot",
-)
-
-# %% Plot population distribution fo risk
-population_risk = risk_samples.join(
-    titer_samples.select("titer"), how="cross"
-).with_columns(
-    risk=calculate_risk(
-        pl.col("midpoint"),
-        pl.col("steepness"),
-        pl.col("min_risk"),
-        pl.col("max_risk"),
-        pl.col("titer"),
+prot_dist = (
+    alt.Chart(pop_dists.select(["prot", "id"]))
+    .transform_density(
+        "prot",
+        as_=["Protection", "Density"],
+        extent=[0, 1],
+        bandwidth=0.1,
+        groupby=["id"],
+    )
+    .mark_line(color="green", opacity=0.3)
+    .encode(
+        x="Protection:Q",
+        y="Density:Q",
     )
 )
-alt.data_transformers.disable_max_rows()
-alt.Chart(population_risk.select(["risk", "id"])).transform_density(
-    "risk",
-    as_=["Risk", "Density"],
-    extent=[0, 1],
-    bandwidth=0.1,
-    groupby=["id"],
-).mark_line(color="green", opacity=0.3).encode(
-    x="Risk:Q",
-    y="Density:Q",
-)
 
-# %% Plot population protection distribution
-population_protection = population_risk.with_columns(
-    prot=calculate_protection(pl.col("risk"), pl.col("risk").max()).over("id")
-)
-alt.data_transformers.disable_max_rows()
-alt.Chart(population_protection.select(["prot", "id"])).transform_density(
-    "prot",
-    as_=["Protection", "Density"],
-    extent=[0, 1],
-    bandwidth=0.1,
-    groupby=["id"],
-).mark_line(color="green", opacity=0.3).encode(
-    x="Protection:Q",
-    y="Density:Q",
-)
+risk_dist.display()
+prot_dist.display()
