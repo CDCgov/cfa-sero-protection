@@ -244,5 +244,3 @@ prot_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.3).encode(
 
 risk_dist.display()
 prot_dist.display()
-
-# %%
