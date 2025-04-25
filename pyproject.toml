@@ -10,6 +10,7 @@ python = "^3.10"
 polars = "^1.24.0"
 numpy = "^2.2.3"
 altair = "^5.5.0"
+scipy = "^1.15.2"
 
 
 [tool.poetry.group.dev.dependencies]

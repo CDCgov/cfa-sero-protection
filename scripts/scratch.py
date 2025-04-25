@@ -4,6 +4,7 @@ from typing import List
 import altair as alt
 import numpy as np
 import polars as pl
+from scipy.stats import gaussian_kde
 
 
 # %% Create functions
@@ -92,7 +93,7 @@ def simulate_risk_parameters(
     return pars
 
 
-# %% Simulate a titer distribution and a risk curve
+# %% Simulate a titer distribution and plot it
 titer_samples = simulate_titers(
     mns=[0.5, 1.0, 1.5, 2.0, 1.5],
     sds=[0.25, 0.25, 0.25, 0.25, 0.5],
@@ -100,20 +101,6 @@ titer_samples = simulate_titers(
     seed=1,
 )
 
-risk_samples = simulate_risk_parameters(
-    midpoint_mn=120,
-    midpoint_sd=10,
-    steepness_mn=0.05,
-    steepness_sd=0.01,
-    min_risk_mn=0.2,
-    min_risk_sd=0.04,
-    max_risk_mn=0.8,
-    max_risk_sd=0.04,
-    N=100,
-    seed=1,
-)
-
-# %% Plot titer distribution
 titer_dist = (
     alt.Chart(titer_samples[["titer"]])
     .transform_density(
@@ -129,7 +116,20 @@ titer_dist = (
 
 titer_dist.display()
 
-# %% Plot risk and protection curves
+# %% Simulate a risk curve and plot it
+risk_samples = simulate_risk_parameters(
+    midpoint_mn=120,
+    midpoint_sd=10,
+    steepness_mn=0.05,
+    steepness_sd=0.01,
+    min_risk_mn=0.2,
+    min_risk_sd=0.04,
+    max_risk_mn=0.8,
+    max_risk_sd=0.04,
+    N=100,
+    seed=1,
+)
+
 curves = (
     risk_samples.join(
         pl.DataFrame(
@@ -209,39 +209,54 @@ pop_dists = (
     )
 )
 
-alt.data_transformers.disable_max_rows()
-
-risk_dist = (
-    alt.Chart(pop_dists.select(["risk", "id"]))
-    .transform_density(
-        "risk",
-        as_=["Risk", "Density"],
-        extent=[0, 1],
-        bandwidth=0.1,
-        groupby=["id"],
-    )
-    .mark_line(color="green", opacity=0.3)
-    .encode(
-        x="Risk:Q",
-        y="Density:Q",
-    )
+risk_mean_dens = np.zeros(1000)
+prot_mean_dens = np.zeros(1000)
+x = np.linspace(0, 1, 1000)
+for i in range(pop_dists["id"].max()):
+    risks = pop_dists.filter(pl.col("id") == i)["risk"].to_numpy()
+    prots = pop_dists.filter(pl.col("id") == i)["prot"].to_numpy()
+    risk_dens = gaussian_kde(risks)
+    prot_dens = gaussian_kde(prots)
+    risk_mean_dens = risk_mean_dens + risk_dens(x)
+    prot_mean_dens = prot_mean_dens + prot_dens(x)
+risk_mean_dens = risk_mean_dens / (pop_dists["id"].max() + 1)
+prot_mean_dens = prot_mean_dens / (pop_dists["id"].max() + 1)
+mean_dist = pl.DataFrame(
+    {
+        "x": x,
+        "risk_mean_dens": risk_mean_dens,
+        "prot_mean_dens": prot_mean_dens,
+    }
 )
 
-prot_dist = (
-    alt.Chart(pop_dists.select(["prot", "id"]))
-    .transform_density(
-        "prot",
-        as_=["Protection", "Density"],
-        extent=[0, 1],
-        bandwidth=0.1,
-        groupby=["id"],
-    )
-    .mark_line(color="green", opacity=0.3)
-    .encode(
-        x="Protection:Q",
-        y="Density:Q",
-    )
+risk_dist = alt.Chart(pop_dists.select(["risk", "id"])).transform_density(
+    "risk",
+    as_=["Risk", "Density"],
+    extent=[0, 1],
+    bandwidth=(50000**-0.2),
+    groupby=["id"],
+).mark_line(color="green", opacity=0.3).encode(
+    x="Risk:Q",
+    y="Density:Q",
+) + alt.Chart(mean_dist).mark_line(color="green").encode(
+    x=alt.X("x:Q", title="Risk"), y=alt.Y("risk_mean_dens:Q", title="Density")
+)
+
+prot_dist = alt.Chart(pop_dists.select(["prot", "id"])).transform_density(
+    "prot",
+    as_=["Protection", "Density"],
+    extent=[0, 1],
+    # bandwidth=0.1,
+    groupby=["id"],
+).mark_line(color="green", opacity=0.3).encode(
+    x="Protection:Q",
+    y="Density:Q",
+) + alt.Chart(mean_dist).mark_line(color="green").encode(
+    x=alt.X("x:Q", title="Protection"),
+    y=alt.Y("prot_mean_dens:Q", title="Density"),
 )
 
 risk_dist.display()
 prot_dist.display()
+
+# %%
