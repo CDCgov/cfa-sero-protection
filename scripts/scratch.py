@@ -209,6 +209,7 @@ pop_dists = (
     )
 )
 
+# Just use these to assemble a new df for line plots
 risk_mean_dens = np.zeros(1000)
 prot_mean_dens = np.zeros(1000)
 x = np.linspace(0, 1, 1000)
@@ -233,7 +234,7 @@ risk_dist = alt.Chart(pop_dists.select(["risk", "id"])).transform_density(
     "risk",
     as_=["Risk", "Density"],
     extent=[0, 1],
-    bandwidth=(50000**-0.2),
+    bandwidth=(500**-0.2) ** 2,
     groupby=["id"],
 ).mark_line(color="green", opacity=0.3).encode(
     x="Risk:Q",
@@ -246,7 +247,7 @@ prot_dist = alt.Chart(pop_dists.select(["prot", "id"])).transform_density(
     "prot",
     as_=["Protection", "Density"],
     extent=[0, 1],
-    # bandwidth=0.1,
+    bandwidth=(500**-0.2) ** 2,
     groupby=["id"],
 ).mark_line(color="green", opacity=0.3).encode(
     x="Protection:Q",
