@@ -107,7 +107,7 @@ titer_dist = (
         "titer",
         as_=["Titer", "Density"],
     )
-    .mark_line(color="green")
+    .mark_line(color="orange")
     .encode(
         x="Titer:Q",
         y="Density:Q",
@@ -209,52 +209,37 @@ pop_dists = (
     )
 )
 
-# Just use these to assemble a new df for line plots
-risk_mean_dens = np.zeros(1000)
-prot_mean_dens = np.zeros(1000)
 x = np.linspace(0, 1, 1000)
-for i in range(pop_dists["id"].max()):
+dens_df = pl.DataFrame({})
+for i in range(pop_dists["id"].max() + 1):
     risks = pop_dists.filter(pl.col("id") == i)["risk"].to_numpy()
     prots = pop_dists.filter(pl.col("id") == i)["prot"].to_numpy()
     risk_dens = gaussian_kde(risks)
     prot_dens = gaussian_kde(prots)
-    risk_mean_dens = risk_mean_dens + risk_dens(x)
-    prot_mean_dens = prot_mean_dens + prot_dens(x)
-risk_mean_dens = risk_mean_dens / (pop_dists["id"].max() + 1)
-prot_mean_dens = prot_mean_dens / (pop_dists["id"].max() + 1)
-mean_dist = pl.DataFrame(
-    {
-        "x": x,
-        "risk_mean_dens": risk_mean_dens,
-        "prot_mean_dens": prot_mean_dens,
-    }
+    dens = pl.DataFrame(
+        {"x": x, "risk_dens": risk_dens(x), "prot_dens": prot_dens(x), "id": i}
+    )
+    dens_df = pl.concat([dens_df, dens])
+
+mean_dens_df = (
+    dens_df.group_by("x")
+    .agg(
+        risk_dens=pl.col("risk_dens").mean(),
+        prot_dens=pl.col("prot_dens").mean(),
+    )
+    .sort("x")
 )
 
-risk_dist = alt.Chart(pop_dists.select(["risk", "id"])).transform_density(
-    "risk",
-    as_=["Risk", "Density"],
-    extent=[0, 1],
-    bandwidth=(500**-0.2) ** 2,
-    groupby=["id"],
-).mark_line(color="green", opacity=0.3).encode(
-    x="Risk:Q",
-    y="Density:Q",
-) + alt.Chart(mean_dist).mark_line(color="green").encode(
-    x=alt.X("x:Q", title="Risk"), y=alt.Y("risk_mean_dens:Q", title="Density")
+risk_dist = alt.Chart(dens_df).mark_line(color="green", opacity=0.3).encode(
+    x="x:Q", y="risk_dens:Q"
+) + alt.Chart(mean_dens_df).mark_line(color="green").encode(
+    x=alt.X("x:Q", title="Risk"), y=alt.Y("risk_dens:Q", title="Density")
 )
 
-prot_dist = alt.Chart(pop_dists.select(["prot", "id"])).transform_density(
-    "prot",
-    as_=["Protection", "Density"],
-    extent=[0, 1],
-    bandwidth=(500**-0.2) ** 2,
-    groupby=["id"],
-).mark_line(color="green", opacity=0.3).encode(
-    x="Protection:Q",
-    y="Density:Q",
-) + alt.Chart(mean_dist).mark_line(color="green").encode(
-    x=alt.X("x:Q", title="Protection"),
-    y=alt.Y("prot_mean_dens:Q", title="Density"),
+prot_dist = alt.Chart(dens_df).mark_line(color="green", opacity=0.3).encode(
+    x="x:Q", y="prot_dens:Q"
+) + alt.Chart(mean_dens_df).mark_line(color="green").encode(
+    x=alt.X("x:Q", title="Protection"), y=alt.Y("prot_dens:Q", title="Density")
 )
 
 risk_dist.display()
