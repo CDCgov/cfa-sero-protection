@@ -74,7 +74,7 @@ def simulate_risk_parameters(
     seed: int,
 ):
     """
-    Simulate N draws from a posterior distribution of fit parameters
+    Simulate draws from a posterior distribution of fit parameters
     for a double-scaled logit risk curve. This posterior is not meant
     to be realistic - it is just an object to work with.
     """
@@ -190,7 +190,7 @@ prot_curve = alt.Chart(curves).mark_line(opacity=0.3).encode(
 risk_curve.display()
 prot_curve.display()
 
-# %% Plot population distributions of risk and protection
+# %% Calculate and plot population distributions of risk and protection
 pop_dists = (
     risk_samples.join(titer_samples.select("titer"), how="cross")
     .with_columns(
@@ -210,7 +210,7 @@ pop_dists = (
 )
 
 x = np.linspace(0, 1, 1000)
-dens_df = pl.DataFrame({})
+pop_dens = pl.DataFrame({})
 for i in range(pop_dists["id"].max() + 1):
     risks = pop_dists.filter(pl.col("id") == i)["risk"].to_numpy()
     prots = pop_dists.filter(pl.col("id") == i)["prot"].to_numpy()
@@ -219,10 +219,10 @@ for i in range(pop_dists["id"].max() + 1):
     dens = pl.DataFrame(
         {"x": x, "risk_dens": risk_dens(x), "prot_dens": prot_dens(x), "id": i}
     )
-    dens_df = pl.concat([dens_df, dens])
+    pop_dens = pl.concat([pop_dens, dens])
 
-mean_dens_df = (
-    dens_df.group_by("x")
+mean_pop_dens = (
+    pop_dens.group_by("x")
     .agg(
         risk_dens=pl.col("risk_dens").mean(),
         prot_dens=pl.col("prot_dens").mean(),
@@ -230,15 +230,15 @@ mean_dens_df = (
     .sort("x")
 )
 
-risk_dist = alt.Chart(dens_df).mark_line(color="green", opacity=0.3).encode(
+risk_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.3).encode(
     x="x:Q", y="risk_dens:Q"
-) + alt.Chart(mean_dens_df).mark_line(color="green").encode(
+) + alt.Chart(mean_pop_dens).mark_line(color="green").encode(
     x=alt.X("x:Q", title="Risk"), y=alt.Y("risk_dens:Q", title="Density")
 )
 
-prot_dist = alt.Chart(dens_df).mark_line(color="green", opacity=0.3).encode(
+prot_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.3).encode(
     x="x:Q", y="prot_dens:Q"
-) + alt.Chart(mean_dens_df).mark_line(color="green").encode(
+) + alt.Chart(mean_pop_dens).mark_line(color="green").encode(
     x=alt.X("x:Q", title="Protection"), y=alt.Y("prot_dens:Q", title="Density")
 )
 
