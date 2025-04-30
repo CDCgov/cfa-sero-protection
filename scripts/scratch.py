@@ -107,7 +107,7 @@ titer_dist = (
         "titer",
         as_=["Titer", "Density"],
     )
-    .mark_line(color="orange")
+    .mark_line(color="black")
     .encode(
         x="Titer:Q",
         y="Density:Q",
@@ -171,18 +171,20 @@ mean_prot = (
 
 alt.data_transformers.disable_max_rows()
 
-risk_curve = alt.Chart(curves).mark_line(opacity=0.3).encode(
+risk_curve = alt.Chart(curves).mark_line(opacity=0.1).encode(
     x=alt.X("dummy_titer:Q", title="Titer"),
     y=alt.Y("risk:Q", title="Risk"),
-) + alt.Chart(mean_risk).mark_line(opacity=1.0).encode(
+    detail="id",
+) + alt.Chart(mean_risk).mark_line(opacity=1.0, color="black").encode(
     x="dummy_titer:Q",
     y="risk:Q",
 )
 
-prot_curve = alt.Chart(curves).mark_line(opacity=0.3).encode(
+prot_curve = alt.Chart(curves).mark_line(opacity=0.1).encode(
     x=alt.X("dummy_titer:Q", title="Titer"),
     y=alt.Y("prot:Q", title="Protection"),
-) + alt.Chart(mean_prot).mark_line(opacity=1.0).encode(
+    detail="id",
+) + alt.Chart(mean_prot).mark_line(opacity=1.0, color="black").encode(
     x="dummy_titer:Q",
     y="prot:Q",
 )
@@ -230,15 +232,15 @@ mean_pop_dens = (
     .sort("x")
 )
 
-risk_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.3).encode(
-    x="x:Q", y="risk_dens:Q"
-) + alt.Chart(mean_pop_dens).mark_line(color="green").encode(
+risk_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.1).encode(
+    x="x:Q", y="risk_dens:Q", detail="id"
+) + alt.Chart(mean_pop_dens).mark_line(color="black").encode(
     x=alt.X("x:Q", title="Risk"), y=alt.Y("risk_dens:Q", title="Density")
 )
 
-prot_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.3).encode(
-    x="x:Q", y="prot_dens:Q"
-) + alt.Chart(mean_pop_dens).mark_line(color="green").encode(
+prot_dist = alt.Chart(pop_dens).mark_line(color="green", opacity=0.1).encode(
+    x="x:Q", y="prot_dens:Q", detail="id"
+) + alt.Chart(mean_pop_dens).mark_line(color="black").encode(
     x=alt.X("x:Q", title="Protection"), y=alt.Y("prot_dens:Q", title="Density")
 )
 
