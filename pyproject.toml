@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "cfa-sero-protection"
+name = "seropro"
 version = "0.1.0"
 description = ""
 authors = ["Edward Schrom <tec0@cdc.gov>"]
