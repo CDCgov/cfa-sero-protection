@@ -41,7 +41,7 @@ class Samples(pl.DataFrame):
                         "density": kde(x_vals),
                         groups: i,
                     }
-                ).with_columns(pl.col(groups).cast(pl.Int64).alias(groups))
+                )
                 density = density.vstack(group_density)
 
         return Density(density)
