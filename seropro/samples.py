@@ -60,7 +60,7 @@ class TiterSamples(Samples):
 
     def validate(self):
         seropro.utils.validate_schema(
-            {"titer": pl.Float64, "pop_id": pl.Int64}, self.schema
+            {"titer": pl.Float64, "pop_id": pl.Int32}, self.schema
         )
         assert (self["titer"] >= 0.0).all(), "There are negative titers!"
 
@@ -87,7 +87,7 @@ class CurveSamples(Samples):
 
     def validate(self):
         seropro.utils.validate_schema(
-            {"par": pl.String, "val": pl.Float64, "par_id": pl.Int64},
+            {"par": pl.String, "val": pl.Float64, "par_id": pl.Int32},
             self.schema,
         )
 
@@ -177,9 +177,7 @@ def simulate_titers(dists: List[tuple], seed: int = 0):
         assert type(dist[0]) is str, "A distribution is not named."
         assert hasattr(rng, dist[0]), "{dist[0]} is not a distribution."
         titers = titers + getattr(rng, dist[0])(*dist[1:]).tolist()
-    titer_samples = pl.DataFrame(
-        {"titer": titers, "pop_id": list(range(len(titers)))}
-    )
+    titer_samples = pl.DataFrame({"titer": titers}).with_row_index("pop_id")
     return TiterSamples(titer_samples)
 
 
@@ -202,10 +200,7 @@ def simulate_curve(dists: Dict[str, tuple], seed: int = 0):
         draws = draws.hstack(
             pl.DataFrame({name: getattr(rng, dist[0])(*dist[1:]).tolist()})
         )
-    draws = draws.with_row_index("par_id").with_columns(
-        par_id=pl.col("par_id").cast(pl.Int64)
-    )
-    draws = draws.unpivot(
+    draws = draws.with_row_index("par_id").unpivot(
         index="par_id", variable_name="par", value_name="val"
     )
     return CurveSamples(draws)
