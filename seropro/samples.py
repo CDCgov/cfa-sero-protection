@@ -143,7 +143,11 @@ class ProtectionSamples(Samples):
 
     def validate(self):
         seropro.utils.validate_schema(
-            {"protection": pl.Float64, "pop_id": pl.Int64, "par_id": pl.Int64},
+            {
+                "protection": pl.Float64,
+                "pop_id": pl.UInt32,
+                "par_id": pl.UInt32,
+            },
             self.schema,
         )
         assert (self["protection"] >= 0.0).all(), "Some protections <0."
