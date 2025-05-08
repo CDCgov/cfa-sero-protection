@@ -40,7 +40,10 @@ def curves():
     return curves
 
 
-def test_to_risk(titers, curves):
+def test_to_risk_right_func(titers, curves):
+    """
+    When given sensible inputs, to_risk should compute correctly.
+    """
     output = titers.to_risk(curves, spu.calculate_risk_dslogit).with_columns(
         risk=pl.col("risk").round(2)
     )
@@ -59,3 +62,10 @@ def test_to_risk(titers, curves):
     plt.assert_frame_equal(
         output, expected, check_row_order=False, check_column_order=False
     )
+
+
+def test_to_risk_wrong_func(titers, curves):
+    """
+    When given a risk functions whose arguments do not match the parameters
+    available in the CurveSamples, to_risk raises the right error.
+    """
