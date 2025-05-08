@@ -12,14 +12,6 @@ def validate_schema(target_schema: dict, actual_schema: dict):
         )
 
 
-def validate_set(target_set: set, actual_col: pl.Series):
-    actual_set = set(actual_col.unique().to_list())
-    missing = target_set - actual_set
-    extra = actual_set - target_set
-    assert missing == set(), f"Entries {missing} are missing."
-    assert extra == set(), f"Entries {extra} are unexpected."
-
-
 def calculate_risk_dslogit(
     mid: pl.Expr,
     slope: pl.Expr,

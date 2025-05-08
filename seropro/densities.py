@@ -13,22 +13,18 @@ class Density(pl.DataFrame):
     def plot(self):
         id_col = [col for col in self.columns if "_id" in col]
         if id_col == []:
-            assert self.shape[1] == 2, (
-                "The Density object has >2 columns but no id column."
-            )
+            assert self.shape[1] == 2, ">2 columns but no id column."
             x_col = (set(self.columns) - {"density"}).pop()
             output = (
                 alt.Chart(self)
                 .mark_line(opacity=1.0, color="black")
                 .encode(
-                    x=x_col + ":Q",
-                    y="density:Q",
+                    x=alt.X(x_col + ":Q"),
+                    y=alt.Y("density:Q"),
                 )
             )
         else:
-            assert self.shape[1] == 3, (
-                "The Density object has >2 columns beyond the id column."
-            )
+            assert self.shape[1] == 3, ">2 columns beyond the id column."
             alt.data_transformers.disable_max_rows()
             id_col = id_col[0]
             x_col = (set(self.columns) - {"density", id_col}).pop()
@@ -46,7 +42,7 @@ class Density(pl.DataFrame):
             ) + alt.Chart(mean_density).mark_line(
                 opacity=1.0, color="black"
             ).encode(
-                x=x_col + ":Q",
-                y="density:Q",
+                x=alt.X(x_col + ":Q"),
+                y=alt.Y("density:Q"),
             )
         output.display()

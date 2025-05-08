@@ -22,20 +22,14 @@ class Samples(pl.DataFrame):
         raise NotImplementedError("Subclasses must implement this method.")
 
     def to_density(
-        self,
-        output: Callable,
-        values: str,
-        groups: str | None,
-        bins: int = 1000,
+        self, values: str, groups: str | None, bins: int = 1000
     ) -> Density:
-        dummy_values = np.linspace(
+        x_vals = np.linspace(
             np.array(self[values].min()), np.array(self[values].max()), bins
         )
         if groups is None:
             kde = gaussian_kde(self[values].to_numpy())
-            density = pl.DataFrame(
-                {values: dummy_values, "density": kde(dummy_values)}
-            )
+            density = pl.DataFrame({values: x_vals, "density": kde(x_vals)})
         else:
             density = pl.DataFrame()
             for i in self[groups].unique():
@@ -43,14 +37,14 @@ class Samples(pl.DataFrame):
                 kde = gaussian_kde(group[values].to_numpy())
                 group_density = pl.DataFrame(
                     {
-                        values: dummy_values,
-                        "density": kde(dummy_values),
+                        values: x_vals,
+                        "density": kde(x_vals),
                         groups: i,
                     }
                 ).with_columns(pl.col(groups).cast(pl.Int64).alias(groups))
                 density = density.vstack(group_density)
 
-        return output(density)
+        return Density(density)
 
 
 class TiterSamples(Samples):
@@ -62,7 +56,7 @@ class TiterSamples(Samples):
         seropro.utils.validate_schema(
             {"titer": pl.Float64, "pop_id": pl.Int32}, self.schema
         )
-        assert (self["titer"] >= 0.0).all(), "There are negative titers!"
+        assert (self["titer"] >= 0.0).all(), "Some titers <0."
 
     def to_risk(
         self, curves: "CurveSamples", risk_func: Callable
@@ -98,7 +92,7 @@ class CurveSamples(Samples):
         titer_max: float = 1000,
         bins: int = 1000,
     ):
-        dummy_titers = TiterSamples(
+        titers = TiterSamples(
             pl.DataFrame(
                 {
                     "titer": np.linspace(titer_min, titer_max, bins),
@@ -106,20 +100,16 @@ class CurveSamples(Samples):
                 }
             )
         )
-        dummy_risks = dummy_titers.to_risk(self, risk_func).join(
-            dummy_titers, on="pop_id"
-        )
+        risks = titers.to_risk(self, risk_func).join(titers, on="pop_id")
         alt.data_transformers.disable_max_rows()
-        mean_risk = dummy_risks.group_by("titer").agg(
-            risk=pl.col("risk").mean()
-        )
-        output = alt.Chart(dummy_risks).mark_line(opacity=0.1).encode(
+        mean_risk = risks.group_by("titer").agg(risk=pl.col("risk").mean())
+        output = alt.Chart(risks).mark_line(opacity=0.1).encode(
             x=alt.X("titer:Q", title="Titer"),
             y=alt.Y("risk:Q", title="Risk"),
             detail="par_id",
         ) + alt.Chart(mean_risk).mark_line(opacity=1.0, color="black").encode(
-            x="titer:Q",
-            y="risk:Q",
+            x=alt.X("titer:Q"),
+            y=alt.Y("risk:Q"),
         )
         output.display()
 
@@ -135,8 +125,8 @@ class RiskSamples(Samples):
             {"risk": pl.Float64, "pop_id": pl.Int64, "par_id": pl.Int64},
             self.schema,
         )
-        assert (self["risk"] >= 0.0).all(), "Some risks are negative."
-        assert (self["risk"] <= 1.0).all(), "Some risks exceed 1."
+        assert (self["risk"] >= 0.0).all(), "Some risks <0."
+        assert (self["risk"] <= 1.0).all(), "Some risks > 1."
 
     def to_protection(self, prot_func: Callable) -> "ProtectionSamples":
         prot_samples = self.with_columns(
@@ -157,10 +147,8 @@ class ProtectionSamples(Samples):
             {"protection": pl.Float64, "pop_id": pl.Int64, "par_id": pl.Int64},
             self.schema,
         )
-        assert (self["protection"] >= 0.0).all(), (
-            "Some protections are negative."
-        )
-        assert (self["protection"] <= 1.0).all(), "Some protections exceed 1."
+        assert (self["protection"] >= 0.0).all(), "Some protections <0."
+        assert (self["protection"] <= 1.0).all(), "Some protections >1."
 
 
 def simulate_titers(dists: List[tuple], seed: int = 0):
