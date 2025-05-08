@@ -54,7 +54,7 @@ class TiterSamples(Samples):
 
     def validate(self):
         seropro.utils.validate_schema(
-            {"titer": pl.Float64, "pop_id": pl.Int32}, self.schema
+            {"titer": pl.Float64, "pop_id": pl.UInt32}, self.schema
         )
         assert (self["titer"] >= 0.0).all(), "Some titers <0."
 
@@ -81,7 +81,7 @@ class CurveSamples(Samples):
 
     def validate(self):
         seropro.utils.validate_schema(
-            {"par": pl.String, "val": pl.Float64, "par_id": pl.Int32},
+            {"par": pl.String, "val": pl.Float64, "par_id": pl.UInt32},
             self.schema,
         )
 
@@ -122,7 +122,7 @@ class RiskSamples(Samples):
 
     def validate(self):
         seropro.utils.validate_schema(
-            {"risk": pl.Float64, "pop_id": pl.Int64, "par_id": pl.Int64},
+            {"risk": pl.Float64, "pop_id": pl.UInt32, "par_id": pl.UInt32},
             self.schema,
         )
         assert (self["risk"] >= 0.0).all(), "Some risks <0."
