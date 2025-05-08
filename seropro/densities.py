@@ -1,8 +1,6 @@
 import altair as alt
 import polars as pl
 
-import seropro.utils
-
 
 class Density(pl.DataFrame):
     """
@@ -11,10 +9,6 @@ class Density(pl.DataFrame):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.validate()
-
-    def validate(self):
-        raise NotImplementedError("Subclasses must implement this method.")
 
     def plot(self):
         id_col = [col for col in self.columns if "_id" in col]
@@ -56,74 +50,3 @@ class Density(pl.DataFrame):
                 y="density:Q",
             )
         output.display()
-
-
-class PopDensity(Density):
-    """
-    Estimated density of a distribution of individuals in a population.
-    """
-
-    def validate(self):
-        raise NotImplementedError("Subclasses must implement this method.")
-
-
-class ParDensity(Density):
-    """
-    Estimated density of a distribution of posterior draws.
-    """
-
-    def validate(self):
-        raise NotImplementedError("Subclasses must implement this method.")
-
-
-class TiterPopDensity(PopDensity):
-    """
-    Estimated density of a distribution of antibody titers of individuals in a population.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.validate()
-
-    def validate(self):
-        seropro.utils.validate_schema(
-            {"titer": pl.Float64, "density": pl.Float64}, self.schema
-        )
-
-
-class RiskPopDensity(PopDensity):
-    """
-    Estimated density of a distribution of risks of individuals in a population,
-    repeated for many draws from a risk curve's posterior distribution.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.validate()
-
-    def validate(self):
-        seropro.utils.validate_schema(
-            {"risk": pl.Float64, "density": pl.Float64, "par_id": pl.Int64},
-            self.schema,
-        )
-
-
-class ProtectionPopDensity(PopDensity):
-    """
-    Estimated density of a distribution of protections of individuals in a population,
-    repeated for many draws from a risk curve's posterior distribution.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.validate()
-
-    def validate(self):
-        seropro.utils.validate_schema(
-            {
-                "protection": pl.Float64,
-                "density": pl.Float64,
-                "par_id": pl.Int64,
-            },
-            self.schema,
-        )

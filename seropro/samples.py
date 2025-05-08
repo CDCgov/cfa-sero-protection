@@ -53,16 +53,7 @@ class Samples(pl.DataFrame):
         return output(density)
 
 
-class PopSamples(Samples):
-    """
-    Samples drawn from a distribution of individuals in a population.
-    """
-
-    def validate(self):
-        raise NotImplementedError("Subclasses must implement this method.")
-
-
-class TiterPopSamples(PopSamples):
+class TiterSamples(Samples):
     """
     Antibody titer samples drawn from a distribution of individuals in a population.
     """
@@ -74,7 +65,7 @@ class TiterPopSamples(PopSamples):
         assert (self["titer"] >= 0.0).all(), "There are negative titers!"
 
     def to_risk(
-        self, curves: "ParSamples", risk_func: Callable
+        self, curves: "CurveSamples", risk_func: Callable
     ) -> "RiskSamples":
         par_samples = curves.pivot(on="par", values="val")
         col_names = risk_func.__code__.co_varnames[
@@ -89,13 +80,16 @@ class TiterPopSamples(PopSamples):
         return RiskSamples(risk_samples)
 
 
-class ParSamples(Samples):
+class CurveSamples(Samples):
     """
-    Samples drawn from a posterior distribution of parameter values.
+    Samples drawn from a posterior distribution of parameter values of a risk curve.
     """
 
     def validate(self):
-        raise NotImplementedError("Subclasses must implement this method.")
+        seropro.utils.validate_schema(
+            {"par": pl.String, "val": pl.Float64, "par_id": pl.Int64},
+            self.schema,
+        )
 
     def plot(
         self,
@@ -104,7 +98,7 @@ class ParSamples(Samples):
         titer_max: float = 1000,
         bins: int = 1000,
     ):
-        dummy_titers = TiterPopSamples(
+        dummy_titers = TiterSamples(
             pl.DataFrame(
                 {
                     "titer": np.linspace(titer_min, titer_max, bins),
@@ -128,20 +122,6 @@ class ParSamples(Samples):
             y="risk:Q",
         )
         output.display()
-
-
-class DSLogitParSamples(ParSamples):
-    """
-    Samples drawn from a posterior distribution of parameter values
-    for a double-scaled logit function.
-    """
-
-    def validate(self):
-        seropro.utils.validate_schema(
-            {"par": pl.String, "val": pl.Float64, "par_id": pl.Int64},
-            self.schema,
-        )
-        seropro.utils.validate_set({"mid", "slope", "min", "max"}, self["par"])
 
 
 class RiskSamples(Samples):
@@ -200,10 +180,10 @@ def simulate_titers(dists: List[tuple], seed: int = 0):
     titer_samples = pl.DataFrame(
         {"titer": titers, "pop_id": list(range(len(titers)))}
     )
-    return TiterPopSamples(titer_samples)
+    return TiterSamples(titer_samples)
 
 
-def simulate_curve(dists: Dict[str, tuple], curve: Callable, seed: int = 0):
+def simulate_curve(dists: Dict[str, tuple], seed: int = 0):
     """
     Simulate parameter draws for a risk curve, specified in a dictionary where keys
     are the name of the curve parameter, and values are lists of the name of the
@@ -228,4 +208,4 @@ def simulate_curve(dists: Dict[str, tuple], curve: Callable, seed: int = 0):
     draws = draws.unpivot(
         index="par_id", variable_name="par", value_name="val"
     )
-    return curve(draws)
+    return CurveSamples(draws)
