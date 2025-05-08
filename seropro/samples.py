@@ -96,9 +96,8 @@ class CurveSamples(Samples):
             pl.DataFrame(
                 {
                     "titer": np.linspace(titer_min, titer_max, bins),
-                    "pop_id": pl.Series(range(0, bins)),
                 }
-            )
+            ).with_row_index("pop_id")
         )
         risks = titers.to_risk(self, risk_func).join(titers, on="pop_id")
         alt.data_transformers.disable_max_rows()
