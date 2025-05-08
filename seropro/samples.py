@@ -126,7 +126,7 @@ class RiskSamples(Samples):
             self.schema,
         )
         assert (self["risk"] >= 0.0).all(), "Some risks <0."
-        assert (self["risk"] <= 1.0).all(), "Some risks > 1."
+        assert (self["risk"] <= 1.0).all(), "Some risks >1."
 
     def to_protection(self, prot_func: Callable) -> "ProtectionSamples":
         prot_samples = self.with_columns(
