@@ -1,15 +1,13 @@
 import polars as pl
 
 
-def validate_schema(target_schema: dict, actual_schema: dict):
+def validate_schema(target: dict, actual: dict):
     """
     Check that columns of the correct names and types exist.
     """
-    for name, type in target_schema.items():
-        assert name in actual_schema, f"Column {name} is missing"
-        assert type == actual_schema[name], (
-            f"Column {name} is {actual_schema[name]} not {type}"
-        )
+    for name, type in target.items():
+        assert name in actual, f"Column {name} is missing"
+        assert type == actual[name], f"{name} is {actual[name]} not {type}"
 
 
 def calculate_risk_dslogit(
