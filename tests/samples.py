@@ -69,3 +69,5 @@ def test_to_risk_wrong_func(titers, curves):
     When given a risk functions whose arguments do not match the parameters
     available in the CurveSamples, to_risk raises the right error.
     """
+    with pytest.raises(AssertionError):
+        titers.to_risk(curves, spu.calculate_protection_oddsratio)

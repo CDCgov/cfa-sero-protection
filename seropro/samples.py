@@ -66,6 +66,9 @@ class TiterSamples(Samples):
             : risk_func.__code__.co_argcount
         ]
         risk_samples = self.join(par_samples, how="cross")
+        assert all(name in risk_samples.columns for name in col_names), (
+            "Risk function parameters do not match risk samples parameter names"
+        )
         cols = tuple(pl.col(name) for name in col_names)
         risk_samples = risk_samples.with_columns(risk=risk_func(*cols)).select(
             ["risk", "pop_id", "par_id"]
