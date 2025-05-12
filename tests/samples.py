@@ -28,7 +28,7 @@ def curves():
         pl.DataFrame(
             {
                 "mid": [10.0, 20.0, 0.0],
-                "slope": [0.0, 10.0, 20.0],
+                "slope": [1.0, 10.0, 20.0],
                 "min": [0.0, 0.1, 0.2],
                 "max": [1.0, 0.9, 0.8],
             }
@@ -52,7 +52,7 @@ def test_to_risk_right_func(titers, curves):
         {
             "pop_id": [0, 1, 2, 0, 1, 2, 0, 1, 2],
             "par_id": [0, 0, 0, 1, 1, 1, 2, 2, 2],
-            "risk": [0.5, 0.5, 0.5, 0.9, 0.9, 0.5, 0.5, 0.2, 0.2],
+            "risk": [1.0, 0.5, 0.0, 0.9, 0.9, 0.5, 0.5, 0.2, 0.2],
         }
     ).with_columns(
         pop_id=pl.col("pop_id").cast(pl.UInt32),
@@ -71,3 +71,30 @@ def test_to_risk_wrong_func(titers, curves):
     """
     with pytest.raises(AssertionError):
         titers.to_risk(curves, spu.calculate_protection_oddsratio)
+
+
+def test_to_density_no_groups(titers):
+    """
+    When there is only one set of sample ids, to_density calculates a density
+    over all samples.
+    """
+    output = titers.to_density("titer", None)
+    assert output.shape == (1000, 2)
+    spu.validate_schema(
+        {"titer": pl.Float64, "density": pl.Float64}, output.schema
+    )
+
+
+def test_to_density_groups(titers, curves):
+    """
+    When there are two sets of sample ids, to_density calculates multiple densities:
+    one over all pop_ids for each par_id.
+    """
+    output = titers.to_risk(curves, spu.calculate_risk_dslogit).to_density(
+        "risk", "par_id"
+    )
+    assert output.shape == (3000, 3)
+    spu.validate_schema(
+        {"risk": pl.Float64, "density": pl.Float64, "par_id": pl.UInt32},
+        output.schema,
+    )

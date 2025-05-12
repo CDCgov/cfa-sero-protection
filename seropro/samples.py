@@ -42,7 +42,11 @@ class Samples(pl.DataFrame):
                         groups: i,
                     }
                 )
-                density = density.vstack(group_density)
+                density = density.vstack(
+                    group_density.with_columns(
+                        pl.col(groups).cast(self[groups].dtype)
+                    )
+                )
 
         return Density(density)
 
