@@ -42,7 +42,11 @@ class Samples(pl.DataFrame):
                         groups: i,
                     }
                 )
-                density = density.vstack(group_density)
+                density = density.vstack(
+                    group_density.with_columns(
+                        pl.col(groups).cast(self[groups].dtype)
+                    )
+                )
 
         return Density(density)
 
@@ -62,11 +66,10 @@ class TiterSamples(Samples):
         self, curves: "CurveSamples", risk_func: Callable
     ) -> "RiskSamples":
         par_samples = curves.pivot(on="par", values="val")
-        col_names = risk_func.__code__.co_varnames[
-            : risk_func.__code__.co_argcount
-        ]
+        args = risk_func.__code__.co_varnames[: risk_func.__code__.co_argcount]
         risk_samples = self.join(par_samples, how="cross")
-        cols = tuple(pl.col(name) for name in col_names)
+        assert all(arg in risk_samples.columns for arg in args), "Bad function"
+        cols = tuple(pl.col(arg) for arg in args)
         risk_samples = risk_samples.with_columns(risk=risk_func(*cols)).select(
             ["risk", "pop_id", "par_id"]
         )
@@ -128,6 +131,8 @@ class RiskSamples(Samples):
         assert (self["risk"] <= 1.0).all(), "Some risks >1."
 
     def to_protection(self, prot_func: Callable) -> "ProtectionSamples":
+        args = prot_func.__code__.co_varnames[: prot_func.__code__.co_argcount]
+        assert args == ("risk",), "Bad function"
         prot_samples = self.with_columns(
             protection=prot_func(pl.col("risk"))
         ).drop("risk")
