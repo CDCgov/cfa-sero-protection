@@ -98,3 +98,29 @@ def test_to_density_groups(titers, curves):
         {"risk": pl.Float64, "density": pl.Float64, "par_id": pl.UInt32},
         output.schema,
     )
+
+
+def test_to_protection_right_func(titers, curves):
+    """
+    When given a protection functions that only requires a risk argument,
+    return protection as expected.
+    """
+    intermediate = titers.to_risk(curves, spu.calculate_risk_dslogit)
+    output = intermediate.to_protection(spu.calculate_protection_oddsratio)
+
+    assert intermediate.shape == output.shape
+    spu.validate_schema(
+        {"protection": pl.Float64, "par_id": pl.UInt32, "pop_id": pl.UInt32},
+        output.schema,
+    )
+
+
+def test_to_protection_wrong_func(titers, curves):
+    """
+    When given a protection functions that requires more than one argument
+    or an argument not called risk, raise the right error.
+    """
+    with pytest.raises(AssertionError):
+        titers.to_risk(curves, spu.calculate_risk_dslogit).to_protection(
+            spu.calculate_risk_dslogit
+        )

@@ -135,6 +135,10 @@ class RiskSamples(Samples):
         assert (self["risk"] <= 1.0).all(), "Some risks >1."
 
     def to_protection(self, prot_func: Callable) -> "ProtectionSamples":
+        col_names = prot_func.__code__.co_varnames[
+            : prot_func.__code__.co_argcount
+        ]
+        assert col_names == ("risk",), "Wrong protection function."
         prot_samples = self.with_columns(
             protection=prot_func(pl.col("risk"))
         ).drop("risk")
