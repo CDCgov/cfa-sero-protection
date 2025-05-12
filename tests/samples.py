@@ -2,7 +2,6 @@ import polars as pl
 import polars.testing as plt
 import pytest
 
-import seropro.densities as sds
 import seropro.samples as sps
 import seropro.utils as spu
 
