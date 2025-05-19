@@ -174,8 +174,8 @@ class RiskSamples(Samples):
 
     def to_protection(self, prot_func: Callable) -> "ProtectionSamples":
         """
-        Protection is calculated relative to the lowest observed titer,
-        but it should be relative to the lowest observable titer.
+        Protection is calculated relative to the minimum observable titer,
+        which corresponds to the maximum observable risk.
         """
         args = prot_func.__code__.co_varnames[: prot_func.__code__.co_argcount]
         assert args == ("risk", "max_risk"), "Bad function"
@@ -188,8 +188,14 @@ class RiskSamples(Samples):
         prot_samples = risks.with_columns(
             protection=prot_func(pl.col("risk"), pl.col("max_risk"))
         ).drop(["risk", "max_risk"])
+        risk_bounds = self.bounds.with_columns(
+            max_risk=pl.col("risk").max().over("par_id")
+        )
+        prot_bounds = risk_bounds.with_columns(
+            protection=prot_func(pl.col("risk"), pl.col("max_risk"))
+        ).drop(["risk"], ["max_risk"])
 
-        return ProtectionSamples(prot_samples, None)
+        return ProtectionSamples(prot_samples, prot_bounds)
 
 
 class ProtectionSamples(Samples):
@@ -209,7 +215,16 @@ class ProtectionSamples(Samples):
         )
         assert (self.draws["protection"] >= 0.0).all(), "Some protections <0."
         assert (self.draws["protection"] <= 1.0).all(), "Some protections >1."
-        assert not hasattr(self, "bounds"), "Bounds should not exist."
+        assert hasattr(self, "bounds"), "Protection bounds are missing."
+        seropro.utils.validate_schema(
+            {
+                "protection": pl.Float64,
+                "pop_id": pl.UInt32,
+                "par_id": pl.UInt32,
+            },
+            self.bounds.schema,
+        )
+        assert set(self.bounds["pop_id"].unique()) == {0, 1}, ">2 bounds."
 
 
 def simulate_titers(dists: List[tuple], seed: int = 0):
