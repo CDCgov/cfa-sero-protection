@@ -122,8 +122,8 @@ class CurveSamples(Samples):
     def plot(
         self,
         risk_func: Callable,
-        titer_min: float = 0,
-        titer_max: float = 1000,
+        titer_min: float = 0.0,
+        titer_max: float = 1000.0,
         bins: int = 1000,
     ):
         titers = TiterSamples(
