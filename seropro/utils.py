@@ -24,9 +24,9 @@ def calculate_risk_dslogit(
     return min + (max - min) / (1 + (slope * (titer - mid)).exp())
 
 
-def calculate_protection_oddsratio(risk: pl.Expr):
+def calculate_protection_oddsratio(risk: pl.Expr, max_risk: pl.Expr):
     """
     Calculate protection using the odds ratio definition,
     using the greatest risk as the baseline for comparison.
     """
-    return 1 - (risk / (1 - risk) / (risk.max() / (1 - risk.max())))
+    return 1 - (risk / (1 - risk) / (max_risk / (1 - max_risk)))
