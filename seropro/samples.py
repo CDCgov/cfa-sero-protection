@@ -131,10 +131,14 @@ class RiskSamples(Samples):
         assert (self["risk"] <= 1.0).all(), "Some risks >1."
 
     def to_protection(self, prot_func: Callable) -> "ProtectionSamples":
+        """
+        Protection is calculated relative to the lowest observed titer,
+        but it should be relative to the lowest observable titer.
+        """
         args = prot_func.__code__.co_varnames[: prot_func.__code__.co_argcount]
         assert args == ("risk",), "Bad function"
         prot_samples = self.with_columns(
-            protection=prot_func(pl.col("risk"))
+            protection=prot_func(pl.col("risk").over("par_id"))
         ).drop("risk")
 
         return ProtectionSamples(prot_samples)
