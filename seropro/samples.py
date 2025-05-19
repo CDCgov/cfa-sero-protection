@@ -180,7 +180,7 @@ class RiskSamples(Samples):
         args = prot_func.__code__.co_varnames[: prot_func.__code__.co_argcount]
         assert args == ("risk", "max_risk"), "Bad function"
         max_risks = (
-            self.bounds.filter("pop_id" == 0)
+            self.bounds.filter(pl.col("pop_id") == 0)
             .drop("pop_id")
             .rename({"risk": "max_risk"})
         )
@@ -193,7 +193,7 @@ class RiskSamples(Samples):
         )
         prot_bounds = risk_bounds.with_columns(
             protection=prot_func(pl.col("risk"), pl.col("max_risk"))
-        ).drop(["risk"], ["max_risk"])
+        ).drop(["risk", "max_risk"])
 
         return ProtectionSamples(prot_samples, prot_bounds)
 
