@@ -243,7 +243,7 @@ def simulate_titers(dists: List[tuple], seed: int = 0):
         titers = titers + getattr(rng, dist[0])(*dist[1:]).tolist()
     titer_samples = pl.DataFrame({"titer": titers}).with_row_index("pop_id")
     titer_bounds = pl.DataFrame(
-        {"titer": [0, titer_samples["titer"].max()]}
+        {"titer": [0.0, titer_samples["titer"].max()]}
     ).with_row_index("pop_id")
     return TiterSamples(titer_samples, titer_bounds)
 
