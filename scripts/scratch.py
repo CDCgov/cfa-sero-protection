@@ -26,6 +26,10 @@ curves.plot(spu.calculate_risk_dslogit)
 risks = titers.to_risk(curves, spu.calculate_risk_dslogit)
 risks.to_density(values="risk", groups="par_id").plot()
 
-# %% Calculate protections for risks and plot their distribution
+# %% Calculate odds-ratio protections for risks and plot their distribution
 prots = risks.to_protection(spu.calculate_protection_oddsratio)
+prots.to_density(values="protection", groups="par_id").plot()
+
+# %% Calculate risk-ratio protections for risks and plot their distribution
+prots = risks.to_protection(spu.calculate_protection_riskratio)
 prots.to_density(values="protection", groups="par_id").plot()
