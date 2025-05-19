@@ -12,7 +12,8 @@ def titers():
     Mock titer data set for testing.
     """
     titers = sps.TiterSamples(
-        pl.DataFrame({"titer": [0.0, 10.0, 20.0]}).with_row_index("pop_id")
+        pl.DataFrame({"titer": [0.0, 10.0, 20.0]}).with_row_index("pop_id"),
+        pl.DataFrame({"titer": [0.0, 50.0]}).with_row_index("pop_id"),
     )
 
     return titers
@@ -33,7 +34,8 @@ def curves():
             }
         )
         .with_row_index("par_id")
-        .unpivot(index="par_id", variable_name="par", value_name="val")
+        .unpivot(index="par_id", variable_name="par", value_name="val"),
+        None,
     )
 
     return curves
@@ -43,9 +45,9 @@ def test_to_risk_right_func(titers, curves):
     """
     When given sensible inputs, to_risk should compute correctly.
     """
-    output = titers.to_risk(curves, spu.calculate_risk_dslogit).with_columns(
-        risk=pl.col("risk").round(2)
-    )
+    output = titers.to_risk(
+        curves, spu.calculate_risk_dslogit
+    ).draws.with_columns(risk=pl.col("risk").round(2))
 
     expected = pl.DataFrame(
         {
@@ -105,9 +107,11 @@ def test_to_protection_right_func(titers, curves):
     return protection as expected.
     """
     intermediate = titers.to_risk(curves, spu.calculate_risk_dslogit)
-    output = intermediate.to_protection(spu.calculate_protection_oddsratio)
+    output = intermediate.to_protection(
+        spu.calculate_protection_oddsratio
+    ).draws
 
-    assert intermediate.shape == output.shape
+    assert intermediate.draws.shape == output.shape
     spu.validate_schema(
         {"protection": pl.Float64, "par_id": pl.UInt32, "pop_id": pl.UInt32},
         output.schema,
