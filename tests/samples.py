@@ -139,17 +139,11 @@ def test_to_protection_right_func(titers, curves):
         protection=pl.col("protection").round(2)
     )
 
-        {
-            "pop_id": [0, 1, 2, 0, 1, 2, 0, 1, 2],
-            "par_id": [0, 0, 0, 1, 1, 1, 2, 2, 2],
-            "risk": [1.0, 0.5, 0.0, 0.9, 0.9, 0.5, 0.5, 0.2, 0.2],
-        }
-
     expected_draws = pl.DataFrame(
         {
             "pop_id": [0, 1, 2, 0, 1, 2, 0, 1, 2],
             "par_id": [0, 0, 0, 1, 1, 1, 2, 2, 2],
-            "protection": [0.0, 0.0, 1.0, 0.0, 0.0, 0.89, 0.0, 0.94, 0.94],
+            "protection": [0.0, 1.0, 1.0, 0.0, 0.0, 0.89, 0.0, 0.75, 0.75],
         }
     ).with_columns(
         pop_id=pl.col("pop_id").cast(pl.UInt32),
@@ -160,7 +154,7 @@ def test_to_protection_right_func(titers, curves):
         {
             "pop_id": [0, 1, 0, 1, 0, 1],
             "par_id": [0, 0, 1, 1, 2, 2],
-            "protection": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+            "protection": [0.0, 1.0, 0.0, 0.99, 0.0, 0.75],
         }
     ).with_columns(
         pop_id=pl.col("pop_id").cast(pl.UInt32),

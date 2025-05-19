@@ -29,4 +29,28 @@ def calculate_protection_oddsratio(risk: pl.Expr, max_risk: pl.Expr):
     Calculate protection using the odds ratio definition,
     using the greatest risk as the baseline for comparison.
     """
-    return 1 - (risk / (1 - risk) / (max_risk / (1 - max_risk)))
+    adj = 0.000001
+    risk = pl.when(risk == 0.0).then(adj).otherwise(risk)
+    risk = pl.when(risk == 1.0).then(risk - adj).otherwise(risk)
+    max_risk = pl.when(max_risk == 0.0).then(adj).otherwise(max_risk)
+    max_risk = (
+        pl.when(max_risk == 1.0).then(max_risk - adj).otherwise(max_risk)
+    )
+
+    return 1 - ((risk / (1 - risk)) / (max_risk / (1 - max_risk)))
+
+
+def calculate_protection_riskratio(risk: pl.Expr, max_risk: pl.Expr):
+    """
+    Calculate protection using the risk ratio definition,
+    using the greatest risk as the baseline for comparison.
+    """
+    adj = 0.000001
+    risk = pl.when(risk == 0.0).then(adj).otherwise(risk)
+    risk = pl.when(risk == 1.0).then(risk - adj).otherwise(risk)
+    max_risk = pl.when(max_risk == 0.0).then(adj).otherwise(max_risk)
+    max_risk = (
+        pl.when(max_risk == 1.0).then(max_risk - adj).otherwise(max_risk)
+    )
+
+    return 1 - (risk / max_risk)
