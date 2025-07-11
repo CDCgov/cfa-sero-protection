@@ -17,8 +17,6 @@ RECOVERY = 0.25
 
 
 # %% Define functions
-
-
 def calculate_risk(
     titer: pl.Expr,
     slope: float,
@@ -43,6 +41,7 @@ for i in range(NUM_DAYS):
     if i == 0:
         daily_data[i] = pl.DataFrame(
             {
+                "id": pl.int_range(0, POP_SIZE),
                 "inf_status": [False] * POP_SIZE,
                 "vax_status": [False] * POP_SIZE,
                 "titer": [0] * POP_SIZE,
@@ -98,7 +97,7 @@ for i in range(NUM_DAYS):
             .then("False")
             .otherwise(pl.col("inf_status"))
         )
-        .select("inf_status", "vax_status", "titer")
+        .select("id", "day", "inf_status", "vax_status", "titer")
     )
 
 all_data = pl.concat(daily_data)
