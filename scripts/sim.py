@@ -39,36 +39,39 @@ daily_data = []
 
 for i in range(NUM_DAYS):
     if i == 0:
-        daily_data[i] = pl.DataFrame(
+        new_daily_data = pl.DataFrame(
             {
-                "id": pl.int_range(0, POP_SIZE),
+                "id": range(0, POP_SIZE),
                 "inf_status": [False] * POP_SIZE,
                 "vax_status": [False] * POP_SIZE,
                 "titer": [0] * POP_SIZE,
             }
         )
     else:
-        daily_data[i] = daily_data[i - 1].with_columns(
+        new_daily_data = daily_data[i - 1].with_columns(
             titer=pl.col("titer") * AB_DECAY
         )
 
-    daily_data[i] = (
-        daily_data[i]
-        .with_columns(
+    new_daily_data = (
+        new_daily_data.with_columns(
             risk=calculate_risk(
                 pl.col("titer"), RISK_SLOPE, RISK_MIDPOINT, RISK_MIN, RISK_MAX
             ),
-            inf_draw=np.random.rand(POP_SIZE) / FORCE_EXP,
-            vax_draw=np.random.rand(POP_SIZE) / FORCE_VAX,
-            rec_draw=np.random.rand(POP_SIZE) / RECOVERY,
+            inf_draw=pl.Series("inf_draw", np.random.rand(POP_SIZE))
+            / FORCE_EXP,
+            vax_draw=pl.Series("vax_draw", np.random.rand(POP_SIZE))
+            / FORCE_VAX,
+            rec_draw=pl.Series("rec_draw", np.random.rand(POP_SIZE))
+            / RECOVERY,
             day=i,
         )
         .with_columns(
-            inf_new=pl.when(
+            pl.when(
                 (pl.col("inf_draw") < pl.col("risk")) & ~pl.col("inf_status")
             )
-            .then("True")
-            .otherwise("False")
+            .then(True)
+            .otherwise(False)
+            .alias("inf_new")
         )
         .with_columns(
             inf_status=pl.col("inf_status") | pl.col("inf_new"),
@@ -79,8 +82,8 @@ for i in range(NUM_DAYS):
                 & ~pl.col("inf_status")
                 & ~pl.col("vax_status")
             )
-            .then("True")
-            .otherwise("False")
+            .then(True)
+            .otherwise(False)
         )
         .with_columns(
             titer=pl.when(pl.col("inf_new") | pl.col("vax_new"))
@@ -89,15 +92,17 @@ for i in range(NUM_DAYS):
         )
         .with_columns(
             rec_new=pl.when((pl.col("rec_draw") < 1.0) & ~pl.col("inf_new"))
-            .then("True")
-            .otherwise("False")
+            .then(True)
+            .otherwise(False)
         )
         .with_columns(
             inf_status=pl.when(pl.col("rec_new"))
-            .then("False")
+            .then(False)
             .otherwise(pl.col("inf_status"))
         )
         .select("id", "day", "inf_status", "vax_status", "titer")
     )
+
+    daily_data.append(new_daily_data)
 
 all_data = pl.concat(daily_data)
