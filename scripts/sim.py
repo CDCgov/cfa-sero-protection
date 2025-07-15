@@ -1,4 +1,5 @@
 # %% Import modules
+import altair as alt
 import numpy as np
 import polars as pl
 
@@ -12,7 +13,7 @@ RISK_MAX = 0.9
 AB_DECAY = 0.99
 AB_SPIKE = 1000.0
 FORCE_EXP = 0.1
-FORCE_VAX = 0.02
+FORCE_VAX = 0.1
 RECOVERY = 0.25
 
 
@@ -106,3 +107,19 @@ for i in range(NUM_DAYS):
     daily_data.append(new_daily_data)
 
 all_data = pl.concat(daily_data)
+
+# %% Plot number of people currently infected through time
+inf_plot = all_data.group_by("day").agg(pl.col("inf_status").sum())
+alt.Chart(inf_plot).mark_line().encode(
+    x=alt.X("day:Q", title="Day"),
+    y=alt.Y("inf_status:Q", title="Number Infected"),
+)
+
+# %% Plot number of people cumulatively vaccinated through time
+vax_plot = all_data.group_by("day").agg(pl.col("vax_status").sum())
+alt.Chart(vax_plot).mark_line().encode(
+    x=alt.X("day:Q", title="Day"),
+    y=alt.Y("inf_status:Q", title="Number Infected"),
+)
+
+# %%
