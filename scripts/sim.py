@@ -13,6 +13,7 @@ AB_RISK_MAX = 0.9
 AB_RISK_MIDPOINT_DROP = 2.0
 AB_DECAY = [0.9, 1.0]
 AB_SPIKE = [500.0, 1000.0]
+AB_LAG = 4
 TC_RISK_SLOPE = 0.02
 TC_RISK_MIDPOINT = 500.0
 TC_RISK_MIN = 0.1
@@ -20,6 +21,7 @@ TC_RISK_MAX = 0.9
 TC_RISK_MIDPOINT_DROP = 2.0
 TC_DECAY = [0.9, 1.0]
 TC_SPIKE = [500.0, 1000.0]
+TC_LAG = 4
 FORCE_EXP = 0.1
 FORCE_VAX = 0.02
 RECOVERY = 0.25
@@ -55,6 +57,10 @@ for i in range(NUM_DAYS):
                 "vax_status": [False] * POP_SIZE,
                 "ab": [0] * POP_SIZE,
                 "tc": [0] * POP_SIZE,
+                "inf_new_lag_ab": [False] * POP_SIZE,
+                "vax_new_lag_ab": [False] * POP_SIZE,
+                "inf_new_lag_tc": [False] * POP_SIZE,
+                "vax_new_lag_tc": [False] * POP_SIZE,
             }
         )
     else:
@@ -71,6 +77,10 @@ for i in range(NUM_DAYS):
                 (np.random.rand(POP_SIZE) * (TC_DECAY[1] - TC_DECAY[0]))
                 + TC_DECAY[0],
             ),
+            inf_new_lag_ab=daily_data[max(0, i - AB_LAG)]["inf_new"],
+            vax_new_lag_ab=daily_data[max(0, i - AB_LAG)]["vax_new"],
+            inf_new_lag_tc=daily_data[max(0, i - TC_LAG)]["inf_new"],
+            vax_new_lag_tc=daily_data[max(0, i - TC_LAG)]["vax_new"],
         )
 
     new_daily_data = (
@@ -119,7 +129,7 @@ for i in range(NUM_DAYS):
         )
         .with_columns(vax_status=pl.col("vax_status") | pl.col("vax_new"))
         .with_columns(
-            ab=pl.when(pl.col("inf_new") | pl.col("vax_new"))
+            ab=pl.when(pl.col("inf_new_lag_ab") | pl.col("vax_new_lag_ab"))
             .then(
                 pl.Series(
                     "ab",
@@ -128,7 +138,7 @@ for i in range(NUM_DAYS):
                 )
             )
             .otherwise(pl.col("ab")),
-            tc=pl.when(pl.col("inf_new") | pl.col("vax_new"))
+            tc=pl.when(pl.col("inf_new_lag_tc") | pl.col("vax_new_lag_tc"))
             .then(
                 pl.Series(
                     "tc",
@@ -148,12 +158,14 @@ for i in range(NUM_DAYS):
             .then(False)
             .otherwise(pl.col("inf_status"))
         )
-        .select("id", "day", "inf_status", "vax_status", "ab", "tc")
+        # .select("id", "day", "inf_status", "vax_status", "ab", "tc")
     )
 
     daily_data.append(new_daily_data)
 
-all_data = pl.concat(daily_data)
+all_data = pl.concat(daily_data).select(
+    "id", "day", "inf_status", "vax_status", "ab", "tc"
+)
 
 # %% Plot number of people currently infected through time
 inf_plot = all_data.group_by("day").agg(pl.col("inf_status").sum())
