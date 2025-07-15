@@ -179,5 +179,3 @@ alt.Chart(pro_plot).mark_line().encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
 )
-
-# %%
