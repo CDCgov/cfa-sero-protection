@@ -6,14 +6,14 @@ import polars as pl
 # %% Define parameters
 POP_SIZE = 1000
 NUM_DAYS = 100
-RISK_SLOPE = 2.0
-RISK_MIDPOINT = 120.0
+RISK_SLOPE = 0.02
+RISK_MIDPOINT = 350.0
 RISK_MIN = 0.1
 RISK_MAX = 0.9
-AB_DECAY = 0.99
+AB_DECAY = 0.9
 AB_SPIKE = 1000.0
 FORCE_EXP = 0.1
-FORCE_VAX = 0.1
+FORCE_VAX = 0.02
 RECOVERY = 0.25
 
 
@@ -67,12 +67,11 @@ for i in range(NUM_DAYS):
             day=i,
         )
         .with_columns(
-            pl.when(
+            inf_new=pl.when(
                 (pl.col("inf_draw") < pl.col("risk")) & ~pl.col("inf_status")
             )
             .then(True)
             .otherwise(False)
-            .alias("inf_new")
         )
         .with_columns(
             inf_status=pl.col("inf_status") | pl.col("inf_new"),
@@ -86,6 +85,7 @@ for i in range(NUM_DAYS):
             .then(True)
             .otherwise(False)
         )
+        .with_columns(vax_status=pl.col("vax_status") | pl.col("vax_new"))
         .with_columns(
             titer=pl.when(pl.col("inf_new") | pl.col("vax_new"))
             .then(AB_SPIKE)
@@ -119,7 +119,18 @@ alt.Chart(inf_plot).mark_line().encode(
 vax_plot = all_data.group_by("day").agg(pl.col("vax_status").sum())
 alt.Chart(vax_plot).mark_line().encode(
     x=alt.X("day:Q", title="Day"),
-    y=alt.Y("inf_status:Q", title="Number Infected"),
+    y=alt.Y("vax_status:Q", title="Number Infected"),
+)
+
+# %% Plot the protection curve
+pro_plot = pl.DataFrame({"titer": range(0, round(AB_SPIKE))}).with_columns(
+    risk=calculate_risk(
+        pl.col("titer"), RISK_SLOPE, RISK_MIDPOINT, RISK_MIN, RISK_MAX
+    )
+)
+alt.Chart(pro_plot).mark_line().encode(
+    x=alt.X("titer:Q", title="Day"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
 )
 
 # %%
