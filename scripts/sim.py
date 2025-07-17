@@ -25,6 +25,7 @@ TC_LAG = 4
 FORCE_EXP = 0.1
 FORCE_VAX = 0.02
 RECOVERY = 0.25
+XSEC_SIZE = 100
 
 
 # %% Define functions
@@ -185,10 +186,12 @@ alt.Chart(pro_plot).mark_line().encode(
 )
 
 # %% Collect a cross sectional serosurvey
-xsec_data = (
-    all_data.group_by("id")
-    .agg(pl.all().sample(n=1).first())
-    .sample(fraction=0.1)
+xsec_samples = pl.DataFrame(
+    {
+        "id": np.random.choice(POP_SIZE, XSEC_SIZE, replace=False),
+        "day": np.random.choice(NUM_DAYS, XSEC_SIZE),
+    }
 )
+xsec_data = all_data.join(xsec_samples, ["id", "day"], "semi")
 
 # %%
