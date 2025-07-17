@@ -26,6 +26,8 @@ FORCE_EXP = 0.1
 FORCE_VAX = 0.02
 RECOVERY = 0.25
 XSEC_SIZE = 100
+TND_INF_PRB = 0.1
+TND_NON_PRB = 0.01
 
 
 # %% Define functions
@@ -157,7 +159,13 @@ for i in range(NUM_DAYS):
     daily_data.append(new_daily_data)
 
 all_data = pl.concat(daily_data).select(
-    "id", "day", "inf_status", "vax_status", "ab", "tc"
+    "id",
+    "day",
+    "inf_status",
+    "inf_new",
+    "vax_status",
+    "ab",
+    "tc",
 )
 
 # %% Plot number of people currently infected through time
@@ -194,4 +202,11 @@ xsec_samples = pl.DataFrame(
 )
 xsec_data = all_data.join(xsec_samples, ["id", "day"], "semi")
 
-# %%
+# %% Conduct a TND serosurvey
+tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
+    fraction=TND_INF_PRB
+)
+tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
+    fraction=TND_NON_PRB
+)
+tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
