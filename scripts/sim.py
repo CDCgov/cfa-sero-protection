@@ -67,15 +67,11 @@ for i in range(NUM_DAYS):
         new_daily_data = daily_data[i - 1].with_columns(
             ab=pl.col("ab")
             * pl.Series(
-                "ab",
-                (np.random.rand(POP_SIZE) * (AB_DECAY[1] - AB_DECAY[0]))
-                + AB_DECAY[0],
+                "ab", np.random.uniform(AB_DECAY[0], AB_DECAY[1], POP_SIZE)
             ),
             tc=pl.col("tc")
             * pl.Series(
-                "tc",
-                (np.random.rand(POP_SIZE) * (TC_DECAY[1] - TC_DECAY[0]))
-                + TC_DECAY[0],
+                "tc", np.random.uniform(TC_DECAY[0], TC_DECAY[1], POP_SIZE)
             ),
             inf_new_lag_ab=daily_data[max(0, i - AB_LAG)]["inf_new"],
             vax_new_lag_ab=daily_data[max(0, i - AB_LAG)]["vax_new"],
@@ -132,18 +128,14 @@ for i in range(NUM_DAYS):
             ab=pl.when(pl.col("inf_new_lag_ab") | pl.col("vax_new_lag_ab"))
             .then(
                 pl.Series(
-                    "ab",
-                    (np.random.rand(POP_SIZE) * (AB_SPIKE[1] - AB_SPIKE[0]))
-                    + AB_SPIKE[0],
+                    "ab", np.random.uniform(AB_SPIKE[0], AB_SPIKE[1], POP_SIZE)
                 )
             )
             .otherwise(pl.col("ab")),
             tc=pl.when(pl.col("inf_new_lag_tc") | pl.col("vax_new_lag_tc"))
             .then(
                 pl.Series(
-                    "tc",
-                    (np.random.rand(POP_SIZE) * (TC_SPIKE[1] - TC_SPIKE[0]))
-                    + TC_SPIKE[0],
+                    "tc", np.random.uniform(TC_SPIKE[0], TC_SPIKE[1], POP_SIZE)
                 )
             )
             .otherwise(pl.col("tc")),
@@ -191,3 +183,12 @@ alt.Chart(pro_plot).mark_line().encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
 )
+
+# %% Collect a cross sectional serosurvey
+xsec_data = (
+    all_data.group_by("id")
+    .agg(pl.all().sample(n=1).first())
+    .sample(fraction=0.1)
+)
+
+# %%
