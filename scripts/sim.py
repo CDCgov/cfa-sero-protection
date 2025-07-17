@@ -26,6 +26,7 @@ FORCE_EXP = 0.1
 FORCE_VAX = 0.02
 RECOVERY = 0.25
 XSEC_SIZE = 100
+XSEC_WINDOW = [50, 57]
 TND_INF_PRB = 0.1
 TND_NON_PRB = 0.01
 
@@ -197,7 +198,9 @@ alt.Chart(pro_plot).mark_line().encode(
 xsec_samples = pl.DataFrame(
     {
         "id": np.random.choice(POP_SIZE, XSEC_SIZE, replace=False),
-        "day": np.random.choice(NUM_DAYS, XSEC_SIZE),
+        "day": np.random.choice(
+            np.arange(XSEC_WINDOW[0], XSEC_WINDOW[1]), XSEC_SIZE
+        ),
     }
 )
 xsec_data = all_data.join(xsec_samples, ["id", "day"], "semi")
