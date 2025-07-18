@@ -59,8 +59,8 @@ for i in range(NUM_DAYS):
                 "id": range(0, POP_SIZE),
                 "inf_status": [False] * POP_SIZE,
                 "vax_status": [False] * POP_SIZE,
-                "ab": [0] * POP_SIZE,
-                "tc": [0] * POP_SIZE,
+                "ab": [0.0] * POP_SIZE,
+                "tc": [0.0] * POP_SIZE,
                 "inf_new_lag_ab": [False] * POP_SIZE,
                 "vax_new_lag_ab": [False] * POP_SIZE,
                 "inf_new_lag_tc": [False] * POP_SIZE,
@@ -68,19 +68,40 @@ for i in range(NUM_DAYS):
             }
         )
     else:
-        new_daily_data = daily_data[i - 1].with_columns(
-            ab=pl.col("ab")
-            * pl.Series(
-                "ab", np.random.uniform(AB_DECAY[0], AB_DECAY[1], POP_SIZE)
-            ),
-            tc=pl.col("tc")
-            * pl.Series(
-                "tc", np.random.uniform(TC_DECAY[0], TC_DECAY[1], POP_SIZE)
-            ),
-            inf_new_lag_ab=daily_data[max(0, i - AB_LAG)]["inf_new"],
-            vax_new_lag_ab=daily_data[max(0, i - AB_LAG)]["vax_new"],
-            inf_new_lag_tc=daily_data[max(0, i - TC_LAG)]["inf_new"],
-            vax_new_lag_tc=daily_data[max(0, i - TC_LAG)]["vax_new"],
+        new_daily_data = (
+            daily_data[i - 1]
+            .with_columns(
+                ab=pl.col("ab")
+                * pl.Series(
+                    "ab", np.random.uniform(AB_DECAY[0], AB_DECAY[1], POP_SIZE)
+                ),
+                tc=pl.col("tc")
+                * pl.Series(
+                    "tc", np.random.uniform(TC_DECAY[0], TC_DECAY[1], POP_SIZE)
+                ),
+                inf_new_lag_ab=daily_data[max(0, i - AB_LAG)]["inf_new"],
+                vax_new_lag_ab=daily_data[max(0, i - AB_LAG)]["vax_new"],
+                inf_new_lag_tc=daily_data[max(0, i - TC_LAG)]["inf_new"],
+                vax_new_lag_tc=daily_data[max(0, i - TC_LAG)]["vax_new"],
+            )
+            .with_columns(
+                ab=pl.when(pl.col("inf_new_lag_ab") | pl.col("vax_new_lag_ab"))
+                .then(
+                    pl.Series(
+                        "ab",
+                        np.random.uniform(AB_SPIKE[0], AB_SPIKE[1], POP_SIZE),
+                    )
+                )
+                .otherwise(pl.col("ab")),
+                tc=pl.when(pl.col("inf_new_lag_tc") | pl.col("vax_new_lag_tc"))
+                .then(
+                    pl.Series(
+                        "tc",
+                        np.random.uniform(TC_SPIKE[0], TC_SPIKE[1], POP_SIZE),
+                    )
+                )
+                .otherwise(pl.col("tc")),
+            )
         )
 
     new_daily_data = (
@@ -129,22 +150,6 @@ for i in range(NUM_DAYS):
         )
         .with_columns(vax_status=pl.col("vax_status") | pl.col("vax_new"))
         .with_columns(
-            ab=pl.when(pl.col("inf_new_lag_ab") | pl.col("vax_new_lag_ab"))
-            .then(
-                pl.Series(
-                    "ab", np.random.uniform(AB_SPIKE[0], AB_SPIKE[1], POP_SIZE)
-                )
-            )
-            .otherwise(pl.col("ab")),
-            tc=pl.when(pl.col("inf_new_lag_tc") | pl.col("vax_new_lag_tc"))
-            .then(
-                pl.Series(
-                    "tc", np.random.uniform(TC_SPIKE[0], TC_SPIKE[1], POP_SIZE)
-                )
-            )
-            .otherwise(pl.col("tc")),
-        )
-        .with_columns(
             rec_new=pl.when((pl.col("rec_draw") < 1.0) & ~pl.col("inf_new"))
             .then(True)
             .otherwise(False)
@@ -154,7 +159,6 @@ for i in range(NUM_DAYS):
             .then(False)
             .otherwise(pl.col("inf_status"))
         )
-        # .select("id", "day", "inf_status", "vax_status", "ab", "tc")
     )
 
     daily_data.append(new_daily_data)
