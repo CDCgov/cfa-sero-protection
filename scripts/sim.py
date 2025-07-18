@@ -1,7 +1,12 @@
 # %% Import modules
+import sys
+
 import altair as alt
 import numpy as np
 import polars as pl
+
+sys.path.append("/home/tec0/cfa-sero-protection")
+import seropro.samples as sps
 
 # %% Define parameters
 POP_SIZE = 10000
@@ -207,7 +212,44 @@ xsec_samples = pl.DataFrame(
         ),
     }
 )
-xsec_data = all_data.join(xsec_samples, ["id", "day"], "semi")
+
+xsec_data = (
+    all_data.join(xsec_samples, ["id", "day"], "semi")
+    .select(["id", "ab"])
+    .rename({"id": "pop_id", "ab": "titer"})
+    .with_columns(pl.col("pop_id").cast(pl.UInt32), day=pl.lit("50-56"))
+)
+
+xsec_real = (
+    all_data.filter((pl.col("day") >= 50) & (pl.col("day") <= 56))
+    .select(["id", "ab", "day"])
+    .rename({"id": "pop_id", "ab": "titer"})
+    .with_columns(
+        pl.col("pop_id").cast(pl.UInt32), pl.col("day").cast(pl.String)
+    )
+)
+
+xsec = sps.TiterSamples(
+    pl.concat([xsec_data, xsec_real]),
+    pl.DataFrame({"titer": [0.0, 1000.0]}).with_row_index("pop_id"),
+)
+
+xsec_dens = xsec.to_density(values="titer", groups="day")
+
+alt.data_transformers.disable_max_rows()
+id_col = id_col[0]
+x_col = (set(self.columns) - {"density", id_col}).pop()
+mean_density = (
+    self.drop(id_col).group_by(x_col).agg(density=pl.col("density").mean())
+)
+output = alt.Chart(self).mark_line(opacity=0.1, color="green").encode(
+    x=alt.X(x_col + ":Q", title=x_col),
+    y=alt.Y("density:Q", title="Density"),
+    detail=id_col,
+) + alt.Chart(mean_density).mark_line(opacity=1.0, color="black").encode(
+    x=alt.X(x_col + ":Q"),
+    y=alt.Y("density:Q"),
+)
 
 # %% Conduct a TND serosurvey
 tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
@@ -217,3 +259,5 @@ tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
     fraction=TND_NON_PRB
 )
 tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
+
+# %% Plot serosurvey titer distribution vs. true values
