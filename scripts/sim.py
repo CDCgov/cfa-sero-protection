@@ -229,6 +229,16 @@ xsec_real = (
     )
 )
 
+# %% Conduct a TND serosurvey
+tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
+    fraction=TND_INF_PRB
+)
+tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
+    fraction=TND_NON_PRB
+)
+tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
+
+# %% Plot serosurvey titer distribution vs. true values
 xsec_data_dens = sps.TiterSamples(
     xsec_data,
     pl.DataFrame({"titer": [0.0, 1000.0]}).with_row_index("pop_id"),
@@ -251,14 +261,3 @@ output = alt.Chart(xsec_real_dens).mark_line(
     y=alt.Y("density:Q"),
 )
 output.display()
-
-# %% Conduct a TND serosurvey
-tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
-    fraction=TND_INF_PRB
-)
-tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
-    fraction=TND_NON_PRB
-)
-tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
-
-# %% Plot serosurvey titer distribution vs. true values
