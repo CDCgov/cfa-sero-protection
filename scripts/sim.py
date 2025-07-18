@@ -2,8 +2,13 @@
 import sys
 
 import altair as alt
+import jax.numpy as jnp
 import numpy as np
+import numpyro
+import numpyro.distributions as dist
 import polars as pl
+from jax import random
+from numpyro.infer import MCMC, NUTS, init_to_sample
 
 sys.path.append("/home/tec0/cfa-sero-protection")
 import seropro.samples as sps
@@ -229,15 +234,6 @@ xsec_real = (
     )
 )
 
-# %% Conduct a TND serosurvey
-tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
-    fraction=TND_INF_PRB
-)
-tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
-    fraction=TND_NON_PRB
-)
-tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
-
 # %% Plot serosurvey titer distribution vs. true values
 xsec_data_dens = sps.TiterSamples(
     xsec_data,
@@ -261,3 +257,91 @@ output = alt.Chart(xsec_real_dens).mark_line(
     y=alt.Y("density:Q"),
 )
 output.display()
+
+# %% Conduct a TND serosurvey
+tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
+    fraction=TND_INF_PRB
+)
+tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
+    fraction=TND_NON_PRB
+)
+tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
+
+
+# %% Build a numpyro model of protection
+def dslogit_model(
+    titer,
+    infected,
+    slope_shape=2.0,
+    slope_rate=50,
+    midpoint_shape=500.0,
+    midpoint_rate=1.0,
+    min_risk_shape1=1.0,
+    min_risk_shape2=10.0,
+    max_risk_shape1=10.0,
+    max_risk_shape2=1.0,
+):
+    slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
+    midpoint = numpyro.sample(
+        "midpoint", dist.Gamma(midpoint_shape, midpoint_rate)
+    )
+    min_risk = numpyro.sample(
+        "min_risk", dist.Beta(min_risk_shape1, min_risk_shape2)
+    )
+    max_risk = numpyro.sample(
+        "max_risk", dist.Beta(max_risk_shape1, max_risk_shape2)
+    )
+    mu = min_risk + (max_risk - min_risk) / (
+        1 + jnp.exp(slope * (titer - midpoint))
+    )
+    numpyro.sample("obs", dist.Binomial(probs=mu), obs=infected)
+
+
+# %% Fit the numpyro model of protection
+titer = tnd_data["ab"].to_numpy()
+infected = tnd_data["inf_status"].to_numpy() * 1
+kernel = NUTS(dslogit_model, init_strategy=init_to_sample)
+mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=4)
+mcmc.run(random.key(0), titer=titer, infected=infected)
+mcmc.print_summary()
+
+# %% Plot the true protection curve vs. the inferred curve
+prot_real = pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))}).with_columns(
+    risk=calculate_risk(
+        pl.col("ab"), AB_RISK_SLOPE, AB_RISK_MIDPOINT, AB_RISK_MIN, AB_RISK_MAX
+    )
+)
+mcmc_samples = mcmc.get_samples()
+prot = []
+for i in range(1000):
+    new_prot_infer = pl.DataFrame(
+        {"ab": range(0, round(AB_SPIKE[1]))}
+    ).with_columns(
+        risk=calculate_risk(
+            pl.col("ab"),
+            mcmc_samples["slope"][i],
+            mcmc_samples["midpoint"][i],
+            mcmc_samples["min_risk"][i],
+            mcmc_samples["max_risk"][i],
+        ),
+        sample_id=pl.lit(i),
+    )
+    prot.append(new_prot_infer)
+prot_infer = pl.concat(prot)
+
+alt.Chart(prot_real).mark_line().encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+alt.data_transformers.disable_max_rows()
+output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+    detail="sample_id",
+) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+output.display()
+
+# %%
