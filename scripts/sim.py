@@ -305,4 +305,43 @@ mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=4)
 mcmc.run(random.key(0), titer=titer, infected=infected)
 mcmc.print_summary()
 
+# %% Plot the true protection curve vs. the inferred curve
+prot_real = pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))}).with_columns(
+    risk=calculate_risk(
+        pl.col("ab"), AB_RISK_SLOPE, AB_RISK_MIDPOINT, AB_RISK_MIN, AB_RISK_MAX
+    )
+)
+mcmc_samples = mcmc.get_samples()
+prot = []
+for i in range(1000):
+    new_prot_infer = pl.DataFrame(
+        {"ab": range(0, round(AB_SPIKE[1]))}
+    ).with_columns(
+        risk=calculate_risk(
+            pl.col("ab"),
+            mcmc_samples["slope"][i],
+            mcmc_samples["midpoint"][i],
+            mcmc_samples["min_risk"][i],
+            mcmc_samples["max_risk"][i],
+        ),
+        sample_id=pl.lit(i),
+    )
+    prot.append(new_prot_infer)
+prot_infer = pl.concat(prot)
+
+alt.Chart(prot_real).mark_line().encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+alt.data_transformers.disable_max_rows()
+output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+    detail="sample_id",
+) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+output.display()
+
 # %%
