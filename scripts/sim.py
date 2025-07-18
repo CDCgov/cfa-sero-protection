@@ -8,7 +8,7 @@ import numpyro
 import numpyro.distributions as dist
 import polars as pl
 from jax import random
-from numpyro.infer import MCMC, NUTS, Predictive, init_to_sample
+from numpyro.infer import MCMC, NUTS, init_to_sample
 
 sys.path.append("/home/tec0/cfa-sero-protection")
 import seropro.samples as sps
@@ -295,3 +295,14 @@ def dslogit_model(
         1 + jnp.exp(slope * (titer - midpoint))
     )
     numpyro.sample("obs", dist.Binomial(probs=mu), obs=infected)
+
+
+# %% Fit the numpyro model of protection
+titer = tnd_data["ab"].to_numpy()
+infected = tnd_data["inf_status"].to_numpy() * 1
+kernel = NUTS(dslogit_model, init_strategy=init_to_sample)
+mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=4)
+mcmc.run(random.key(0), titer=titer, infected=infected)
+mcmc.print_summary()
+
+# %%
