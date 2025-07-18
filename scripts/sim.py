@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 # %% Define parameters
-POP_SIZE = 1000
+POP_SIZE = 10000
 NUM_DAYS = 100
 AB_RISK_SLOPE = 0.02
 AB_RISK_MIDPOINT = 500.0
@@ -173,14 +173,14 @@ all_data = pl.concat(daily_data).select(
 inf_plot = all_data.group_by("day").agg(pl.col("inf_status").sum())
 alt.Chart(inf_plot).mark_line().encode(
     x=alt.X("day:Q", title="Day"),
-    y=alt.Y("inf_status:Q", title="Number Infected"),
+    y=alt.Y("inf_status:Q", title="Current Number Infected"),
 )
 
 # %% Plot number of people cumulatively vaccinated through time
 vax_plot = all_data.group_by("day").agg(pl.col("vax_status").sum())
 alt.Chart(vax_plot).mark_line().encode(
     x=alt.X("day:Q", title="Day"),
-    y=alt.Y("vax_status:Q", title="Number Infected"),
+    y=alt.Y("vax_status:Q", title="Cumulative Number Vaccinated"),
 )
 
 # %% Plot the antibody protection curve
