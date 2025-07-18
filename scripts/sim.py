@@ -267,4 +267,31 @@ tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
 )
 tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
 
+
 # %% Build a numpyro model of protection
+def dslogit_model(
+    titer,
+    infected,
+    slope_shape=2.0,
+    slope_rate=50,
+    midpoint_shape=500.0,
+    midpoint_rate=1.0,
+    min_risk_shape1=1.0,
+    min_risk_shape2=10.0,
+    max_risk_shape1=10.0,
+    max_risk_shape2=1.0,
+):
+    slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
+    midpoint = numpyro.sample(
+        "midpoint", dist.Gamma(midpoint_shape, midpoint_rate)
+    )
+    min_risk = numpyro.sample(
+        "min_risk", dist.Beta(min_risk_shape1, min_risk_shape2)
+    )
+    max_risk = numpyro.sample(
+        "max_risk", dist.Beta(max_risk_shape1, max_risk_shape2)
+    )
+    mu = min_risk + (max_risk - min_risk) / (
+        1 + jnp.exp(slope * (titer - midpoint))
+    )
+    numpyro.sample("obs", dist.Binomial(probs=mu), obs=infected)
