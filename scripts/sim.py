@@ -2,8 +2,13 @@
 import sys
 
 import altair as alt
+import jax.numpy as jnp
 import numpy as np
+import numpyro
+import numpyro.distributions as dist
 import polars as pl
+from jax import random
+from numpyro.infer import MCMC, NUTS, Predictive, init_to_sample
 
 sys.path.append("/home/tec0/cfa-sero-protection")
 import seropro.samples as sps
@@ -229,15 +234,6 @@ xsec_real = (
     )
 )
 
-# %% Conduct a TND serosurvey
-tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
-    fraction=TND_INF_PRB
-)
-tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
-    fraction=TND_NON_PRB
-)
-tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
-
 # %% Plot serosurvey titer distribution vs. true values
 xsec_data_dens = sps.TiterSamples(
     xsec_data,
@@ -261,3 +257,14 @@ output = alt.Chart(xsec_real_dens).mark_line(
     y=alt.Y("density:Q"),
 )
 output.display()
+
+# %% Conduct a TND serosurvey
+tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
+    fraction=TND_INF_PRB
+)
+tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
+    fraction=TND_NON_PRB
+)
+tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
+
+# %% Build a numpyro model of protection
