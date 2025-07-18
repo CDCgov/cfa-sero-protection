@@ -229,27 +229,28 @@ xsec_real = (
     )
 )
 
-xsec = sps.TiterSamples(
-    pl.concat([xsec_data, xsec_real]),
+xsec_data_dens = sps.TiterSamples(
+    xsec_data,
     pl.DataFrame({"titer": [0.0, 1000.0]}).with_row_index("pop_id"),
-)
+).to_density(values="titer", groups="day")
 
-xsec_dens = xsec.to_density(values="titer", groups="day")
+xsec_real_dens = sps.TiterSamples(
+    xsec_real,
+    pl.DataFrame({"titer": [0.0, 1000.0]}).with_row_index("pop_id"),
+).to_density(values="titer", groups="day")
 
 alt.data_transformers.disable_max_rows()
-id_col = id_col[0]
-x_col = (set(self.columns) - {"density", id_col}).pop()
-mean_density = (
-    self.drop(id_col).group_by(x_col).agg(density=pl.col("density").mean())
-)
-output = alt.Chart(self).mark_line(opacity=0.1, color="green").encode(
-    x=alt.X(x_col + ":Q", title=x_col),
+output = alt.Chart(xsec_real_dens).mark_line(
+    opacity=0.1, color="green"
+).encode(
+    x=alt.X("titer:Q", title="Titer"),
     y=alt.Y("density:Q", title="Density"),
-    detail=id_col,
-) + alt.Chart(mean_density).mark_line(opacity=1.0, color="black").encode(
-    x=alt.X(x_col + ":Q"),
+    detail="day",
+) + alt.Chart(xsec_data_dens).mark_line(opacity=1.0, color="black").encode(
+    x=alt.X("titer:Q"),
     y=alt.Y("density:Q"),
 )
+output.display()
 
 # %% Conduct a TND serosurvey
 tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
