@@ -50,13 +50,20 @@ def calculate_risk(
     max_risk: float,
 ) -> pl.Expr:
     """
-    Define relative risk as a function of log antibody titer,
+    Define risk as a function of log antibody titer,
     following a double-scaled logit functional form.
     """
 
     return min_risk + (max_risk - min_risk) / (
         1 + (slope * (titer - midpoint)).exp()
     )
+
+
+def calculate_protection(risk: pl.Expr) -> pl.Expr:
+    """
+    Define protection as one minus the odds ratio.
+    """
+    return 1 - ((risk / (1 - risk)) / (risk.max() / (1 - risk.max())))
 
 
 # %% Run simulation
@@ -198,14 +205,28 @@ alt.Chart(vax_plot).mark_line().encode(
 )
 
 # %% Plot the antibody protection curve
-pro_plot = pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))}).with_columns(
-    risk=calculate_risk(
-        pl.col("ab"), AB_RISK_SLOPE, AB_RISK_MIDPOINT, AB_RISK_MIN, AB_RISK_MAX
+pro_plot = (
+    pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))})
+    .with_columns(
+        risk=calculate_risk(
+            pl.col("ab"),
+            AB_RISK_SLOPE,
+            AB_RISK_MIDPOINT,
+            AB_RISK_MIN,
+            AB_RISK_MAX,
+        )
     )
+    .with_columns(protection=calculate_protection(pl.col("risk")))
 )
 alt.Chart(pro_plot).mark_line().encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+alt.Chart(pro_plot).mark_line().encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
 )
 
 # %% Collect a cross sectional serosurvey
@@ -306,33 +327,39 @@ mcmc.run(random.key(0), titer=titer, infected=infected)
 mcmc.print_summary()
 
 # %% Plot the true protection curve vs. the inferred curve
-prot_real = pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))}).with_columns(
-    risk=calculate_risk(
-        pl.col("ab"), AB_RISK_SLOPE, AB_RISK_MIDPOINT, AB_RISK_MIN, AB_RISK_MAX
+prot_real = (
+    pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))})
+    .with_columns(
+        risk=calculate_risk(
+            pl.col("ab"),
+            AB_RISK_SLOPE,
+            AB_RISK_MIDPOINT,
+            AB_RISK_MIN,
+            AB_RISK_MAX,
+        )
     )
+    .with_columns(protection=calculate_protection(pl.col("risk")))
 )
 mcmc_samples = mcmc.get_samples()
 prot = []
 for i in range(1000):
-    new_prot_infer = pl.DataFrame(
-        {"ab": range(0, round(AB_SPIKE[1]))}
-    ).with_columns(
-        risk=calculate_risk(
-            pl.col("ab"),
-            mcmc_samples["slope"][i],
-            mcmc_samples["midpoint"][i],
-            mcmc_samples["min_risk"][i],
-            mcmc_samples["max_risk"][i],
-        ),
-        sample_id=pl.lit(i),
+    new_prot_infer = (
+        pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))})
+        .with_columns(
+            risk=calculate_risk(
+                pl.col("ab"),
+                mcmc_samples["slope"][i],
+                mcmc_samples["midpoint"][i],
+                mcmc_samples["min_risk"][i],
+                mcmc_samples["max_risk"][i],
+            ),
+            sample_id=pl.lit(i),
+        )
+        .with_columns(protection=calculate_protection(pl.col("risk")))
     )
     prot.append(new_prot_infer)
 prot_infer = pl.concat(prot)
 
-alt.Chart(prot_real).mark_line().encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
-)
 alt.data_transformers.disable_max_rows()
 output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
@@ -341,6 +368,21 @@ output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
 ) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+output.display()
+
+alt.data_transformers.disable_max_rows()
+output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
+    detail="sample_id",
+) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
 )
 output.display()
 
