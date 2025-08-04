@@ -294,7 +294,7 @@ def dslogit_model(
     titer,
     infected,
     slope_shape=2.0,
-    slope_rate=50,
+    slope_rate=150,
     midpoint_shape=500.0,
     midpoint_rate=1.0,
     min_risk_shape1=1.0,
@@ -370,6 +370,109 @@ output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
 )
 output.display()
+
+alt.data_transformers.disable_max_rows()
+output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
+    detail="sample_id",
+) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
+    x=alt.X("ab:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
+)
+output.display()
+
+# %% Run a super simple simulation: perfect TND but with a 2nd immune wing
+POP_SIZE = 10000
+CASES = 1000
+CONTROLS = 4000
+BIAS = 0.0
+SCALE = 0.0
+RISK_SLOPE = 0.02
+RISK_MIDPOINT = 500.0
+RISK_MIN = 0.0
+RISK_MAX = 0.9
+
+pop = (
+    pl.DataFrame(
+        {
+            "id": range(0, POP_SIZE),
+            "ab": np.random.uniform(0, 1000, POP_SIZE),
+            "rnd": np.random.uniform(0, 1, POP_SIZE),
+        }
+    )
+    .with_columns(
+        tc=pl.col("ab") + pl.Series(np.random.normal(BIAS, SCALE, POP_SIZE))
+    )
+    .with_columns(
+        ab_risk=calculate_risk(
+            pl.col("ab"), RISK_SLOPE, RISK_MIDPOINT, RISK_MIN, RISK_MAX
+        ),
+        tc_risk=calculate_risk(
+            pl.col("tc"), RISK_SLOPE, RISK_MIDPOINT, RISK_MIN, RISK_MAX
+        ),
+    )
+    .with_columns(risk=pl.min_horizontal("ab_risk", "tc_risk"))
+    .with_columns(
+        sick=pl.when(pl.col("rnd") < pl.col("risk"))
+        .then(pl.lit(True))
+        .otherwise(pl.lit(False))
+    )
+)
+
+controls = pop.sample(CONTROLS).with_columns(sick=pl.lit(False))
+cases = (
+    pop.join(controls, on="id", how="anti")
+    .filter(pl.col("sick"))
+    .sample(CASES)
+)
+tnd_data = pl.concat([cases, controls])
+
+# %% Fit the numpyro model of protection
+titer = tnd_data["ab"].to_numpy()
+infected = tnd_data["sick"].to_numpy() * 1
+kernel = NUTS(dslogit_model, init_strategy=init_to_sample)
+mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=4)
+mcmc.run(random.key(0), titer=titer, infected=infected)
+mcmc.print_summary()
+
+# %% Plot the true protection curve vs. the inferred curve
+prot_real = (
+    pl.DataFrame({"ab": range(0, 1000)})
+    .with_columns(
+        risk=calculate_risk(
+            pl.col("ab"),
+            RISK_SLOPE,
+            RISK_MIDPOINT,
+            RISK_MIN,
+            RISK_MAX,
+        )
+    )
+    .with_columns(protection=calculate_protection(pl.col("risk")))
+)
+mcmc_samples = mcmc.get_samples()
+prot = []
+for i in range(1000):
+    new_prot_infer = (
+        pl.DataFrame({"ab": range(0, 1000)})
+        .with_columns(
+            risk=calculate_risk(
+                pl.col("ab"),
+                mcmc_samples["slope"][i],
+                mcmc_samples["midpoint"][i],
+                mcmc_samples["min_risk"][i],
+                mcmc_samples["max_risk"][i],
+            ),
+            sample_id=pl.lit(i),
+        )
+        .with_columns(protection=calculate_protection(pl.col("risk")))
+    )
+    prot.append(new_prot_infer)
+prot_infer = pl.concat(prot)
 
 alt.data_transformers.disable_max_rows()
 output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
