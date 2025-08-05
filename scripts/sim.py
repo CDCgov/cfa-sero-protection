@@ -44,7 +44,7 @@ BIAS = 0.0
 NOISE = 0.0
 RISK_SLOPE = 2
 RISK_MIDPOINT = 2.5
-RISK_MAX = 0.75
+RISK_MAX = 1.0
 
 pop = (
     pl.DataFrame(
@@ -93,7 +93,7 @@ def scaled_logit_model(
     slope_rate=2.0,
     midpoint_shape=2.5,
     midpoint_rate=1.5,
-    max_risk_shape1=10.0,
+    max_risk_shape1=5.0,
     max_risk_shape2=1.0,
 ):
     slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
@@ -148,6 +148,19 @@ for i in range(NUM_SAMPLES):
     prot.append(new_prot_infer)
 prot_infer = pl.concat(prot)
 
+# %% Plot inferred risk vs. real
+alt.data_transformers.disable_max_rows()
+output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+    x=alt.X("titer:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+    detail="sample_id",
+) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
+    x=alt.X("titer:Q", title="Antibody Titer"),
+    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+)
+output.display()
+
+# %% Plot inferred protection vs. real
 alt.data_transformers.disable_max_rows()
 output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
     x=alt.X("titer:Q", title="Antibody Titer"),
