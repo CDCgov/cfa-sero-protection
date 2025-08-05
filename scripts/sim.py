@@ -13,6 +13,158 @@ from numpyro.infer import MCMC, NUTS, init_to_sample
 sys.path.append("/home/tec0/cfa-sero-protection")
 import seropro.samples as sps
 
+
+# %% Define functions.
+def scaled_logit_risk(
+    titer: pl.Expr,
+    slope: float,
+    midpoint: float,
+    max_risk: float,
+) -> pl.Expr:
+    """
+    Risk is a scaled logit function of antibody titer.
+    """
+
+    return max_risk / (1 + (slope * (titer - midpoint)).exp())
+
+
+def odds_ratio_protection(risk: pl.Expr) -> pl.Expr:
+    """
+    Protection is one minus the odds ratio of risk.
+    """
+    return 1 - ((risk / (1 - risk)) / (risk.max() / (1 - risk.max())))
+
+
+# %% Recreate Casey's simulation.
+POP_SIZE = 10000
+CASES = 1000
+CONTROLS = 4000
+MAX_TITER = 5.0
+BIAS = 0.0
+NOISE = 0.0
+RISK_SLOPE = 2
+RISK_MIDPOINT = 2.5
+RISK_MAX = 0.75
+
+pop = (
+    pl.DataFrame(
+        {
+            "id": range(0, POP_SIZE),
+            "titer": np.random.uniform(0, MAX_TITER, POP_SIZE),
+            "draw": np.random.uniform(0, 1, POP_SIZE),
+        }
+    )
+    .with_columns(
+        other=(
+            pl.col("titer")
+            + pl.Series(np.random.normal(BIAS, NOISE, POP_SIZE))
+        ).clip(lower_bound=0.0)
+    )
+    .with_columns(
+        titer_risk=scaled_logit_risk(
+            pl.col("titer"), RISK_SLOPE, RISK_MIDPOINT, RISK_MAX
+        ),
+        other_risk=scaled_logit_risk(
+            pl.col("other"), RISK_SLOPE, RISK_MIDPOINT, RISK_MAX
+        ),
+    )
+    .with_columns(risk=pl.min_horizontal("titer_risk", "other_risk"))
+    .with_columns(
+        sick=pl.when(pl.col("draw") < pl.col("risk"))
+        .then(pl.lit(True))
+        .otherwise(pl.lit(False))
+    )
+)
+
+controls = pop.sample(CONTROLS).with_columns(sick=pl.lit(False))
+cases = (
+    pop.join(controls, on="id", how="anti")
+    .filter(pl.col("sick"))
+    .sample(CASES)
+)
+tnd_data = pl.concat([cases, controls])
+
+
+# %% Build a numpyro model of protection
+def scaled_logit_model(
+    titer,
+    sick,
+    slope_shape=2.0,
+    slope_rate=2.0,
+    midpoint_shape=2.5,
+    midpoint_rate=1.5,
+    max_risk_shape1=10.0,
+    max_risk_shape2=1.0,
+):
+    slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
+    midpoint = numpyro.sample(
+        "midpoint", dist.Gamma(midpoint_shape, midpoint_rate)
+    )
+    max_risk = numpyro.sample(
+        "max_risk", dist.Beta(max_risk_shape1, max_risk_shape2)
+    )
+    mu = max_risk / (1 + jnp.exp(slope * (titer - midpoint)))
+    numpyro.sample("obs", dist.Binomial(probs=mu), obs=sick)
+
+
+# %% Fit the numpyro model of protection
+NUM_SAMPLES = 200
+titer = tnd_data["titer"].to_numpy()
+sick = tnd_data["sick"].to_numpy() * 1
+kernel = NUTS(scaled_logit_model, init_strategy=init_to_sample)
+mcmc = MCMC(kernel, num_warmup=1000, num_samples=NUM_SAMPLES, num_chains=4)
+mcmc.run(random.key(0), titer=titer, sick=sick)
+mcmc.print_summary()
+
+# %% Plot the true protection curve vs. the inferred curve
+prot_real = (
+    pl.DataFrame({"titer": np.arange(0, MAX_TITER + 0.01, 0.01)})
+    .with_columns(
+        risk=scaled_logit_risk(
+            pl.col("titer"),
+            RISK_SLOPE,
+            RISK_MIDPOINT,
+            RISK_MAX,
+        )
+    )
+    .with_columns(protection=odds_ratio_protection(pl.col("risk")))
+)
+mcmc_samples = mcmc.get_samples()
+prot = []
+for i in range(NUM_SAMPLES):
+    new_prot_infer = (
+        pl.DataFrame({"titer": np.arange(0, MAX_TITER + 0.01, 0.01)})
+        .with_columns(
+            risk=scaled_logit_risk(
+                pl.col("titer"),
+                mcmc_samples["slope"][i],
+                mcmc_samples["midpoint"][i],
+                mcmc_samples["max_risk"][i],
+            ),
+            sample_id=pl.lit(i),
+        )
+        .with_columns(protection=odds_ratio_protection(pl.col("risk")))
+    )
+    prot.append(new_prot_infer)
+prot_infer = pl.concat(prot)
+
+alt.data_transformers.disable_max_rows()
+output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+    x=alt.X("titer:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
+    detail="sample_id",
+) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
+    x=alt.X("titer:Q", title="Antibody Titer"),
+    y=alt.Y(
+        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
+    ),
+)
+output.display()
+
+# %% EVERYTHING BELOW IS SCRATCHWORK FOR MORE COMPLICATED STUFF
+
 # %% Define parameters
 POP_SIZE = 10000
 NUM_DAYS = 100
@@ -385,108 +537,3 @@ output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
     ),
 )
 output.display()
-
-# %% Run a super simple simulation: perfect TND but with a 2nd immune wing
-POP_SIZE = 10000
-CASES = 1000
-CONTROLS = 4000
-BIAS = 0.0
-SCALE = 0.0
-RISK_SLOPE = 0.02
-RISK_MIDPOINT = 500.0
-RISK_MIN = 0.0
-RISK_MAX = 0.9
-
-pop = (
-    pl.DataFrame(
-        {
-            "id": range(0, POP_SIZE),
-            "ab": np.random.uniform(0, 1000, POP_SIZE),
-            "rnd": np.random.uniform(0, 1, POP_SIZE),
-        }
-    )
-    .with_columns(
-        tc=pl.col("ab") + pl.Series(np.random.normal(BIAS, SCALE, POP_SIZE))
-    )
-    .with_columns(
-        ab_risk=calculate_risk(
-            pl.col("ab"), RISK_SLOPE, RISK_MIDPOINT, RISK_MIN, RISK_MAX
-        ),
-        tc_risk=calculate_risk(
-            pl.col("tc"), RISK_SLOPE, RISK_MIDPOINT, RISK_MIN, RISK_MAX
-        ),
-    )
-    .with_columns(risk=pl.min_horizontal("ab_risk", "tc_risk"))
-    .with_columns(
-        sick=pl.when(pl.col("rnd") < pl.col("risk"))
-        .then(pl.lit(True))
-        .otherwise(pl.lit(False))
-    )
-)
-
-controls = pop.sample(CONTROLS).with_columns(sick=pl.lit(False))
-cases = (
-    pop.join(controls, on="id", how="anti")
-    .filter(pl.col("sick"))
-    .sample(CASES)
-)
-tnd_data = pl.concat([cases, controls])
-
-# %% Fit the numpyro model of protection
-titer = tnd_data["ab"].to_numpy()
-infected = tnd_data["sick"].to_numpy() * 1
-kernel = NUTS(dslogit_model, init_strategy=init_to_sample)
-mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=4)
-mcmc.run(random.key(0), titer=titer, infected=infected)
-mcmc.print_summary()
-
-# %% Plot the true protection curve vs. the inferred curve
-prot_real = (
-    pl.DataFrame({"ab": range(0, 1000)})
-    .with_columns(
-        risk=calculate_risk(
-            pl.col("ab"),
-            RISK_SLOPE,
-            RISK_MIDPOINT,
-            RISK_MIN,
-            RISK_MAX,
-        )
-    )
-    .with_columns(protection=calculate_protection(pl.col("risk")))
-)
-mcmc_samples = mcmc.get_samples()
-prot = []
-for i in range(1000):
-    new_prot_infer = (
-        pl.DataFrame({"ab": range(0, 1000)})
-        .with_columns(
-            risk=calculate_risk(
-                pl.col("ab"),
-                mcmc_samples["slope"][i],
-                mcmc_samples["midpoint"][i],
-                mcmc_samples["min_risk"][i],
-                mcmc_samples["max_risk"][i],
-            ),
-            sample_id=pl.lit(i),
-        )
-        .with_columns(protection=calculate_protection(pl.col("risk")))
-    )
-    prot.append(new_prot_infer)
-prot_infer = pl.concat(prot)
-
-alt.data_transformers.disable_max_rows()
-output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y(
-        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
-    ),
-    detail="sample_id",
-) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y(
-        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
-    ),
-)
-output.display()
-
-# %%
