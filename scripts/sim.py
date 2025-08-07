@@ -9,33 +9,374 @@ import numpyro.distributions as dist
 import polars as pl
 from jax import random
 from numpyro.infer import MCMC, NUTS, init_to_sample
+from scipy.optimize import minimize
+from scipy.stats import loguniform
 
 sys.path.append("/home/tec0/cfa-sero-protection")
 import seropro.samples as sps
 
+# %% Set parameters and establish functions to recreate Casey's results
+N = 10000
+N_PLOT = 1000
+CONTROLS_PER_CASE = 4
+SIGMOID_MAX = 0.5
+SIGMOID_SLOPE = 2.0
+SIGMOID_MID = 6.0
+SIGMOID_PARS = {
+    "steepness": SIGMOID_SLOPE,
+    "mid_point": SIGMOID_MID,
+    "saturating_point": SIGMOID_MAX,
+}
 
-# %% Define functions.
-def scaled_logit_risk(
-    titer: pl.Expr,
-    slope: float,
-    midpoint: float,
-    max_risk: float,
-) -> pl.Expr:
+
+def generate_paired_samples(sz, list1, list2):
+    """Generate a paired random sample (with replacement) of size 'sz' from two lists
+    Returns two lists containing matched samples from list1 and list2
     """
-    Risk is a scaled logit function of antibody titer.
+    list1_samples = []
+    list2_samples = []
+    list_size = len(list1)
+    for ii in range(sz):
+        to_sample = np.random.randint(0, list_size)
+        list1_samples.append(list1[to_sample])
+        list2_samples.append(list2[to_sample])
+    return np.array(list1_samples), np.array(list2_samples)
+
+
+def jitter_vector(vector, magnitude):
+    return vector + np.random.uniform(-magnitude, magnitude, size=len(vector))
+
+
+def get_loguniform_Ab_titers(size: int) -> np.ndarray:
+    # Generate uniform random sample in log-space of antibody titers between ~[0,18000]
+    return np.log(loguniform.rvs(np.exp(1), np.exp(10), size=size))
+
+
+def sigmoid(x, steepness, mid_point, saturating_point=1.0):
+    return saturating_point / (1 + np.exp(steepness * (x - mid_point)))
+
+
+def one_minus_OR(risk):
+    baseline_odds = np.max(risk) / (1 - np.max(risk))
+    return 1 - ((risk / (1 - risk)) / baseline_odds)
+
+
+def generate_TND_data(
+    N,
+    steepness,
+    mid_point,
+    saturating_point,
+    controls_per_case,
+):
     """
-
-    return max_risk / (1 + (slope * (titer - midpoint)).exp())
-
-
-def odds_ratio_protection(risk: pl.Expr) -> pl.Expr:
+    Generate test-negative design data. Returns samples of [x, y],
+    where x = sampled antibody titer, and y = positive or negative (0/1)
     """
-    Protection is one minus the odds ratio of risk.
+    Ab_titers = np.array([])
+    test_results = np.array([])
+
+    # Set constants
+    num_desired_cases = int(N / (controls_per_case + 1))
+    num_desired_controls = int(N - num_desired_cases)
+    pop_to_simulate = N * 10
+
+    # Generate simulated population with antibody titers
+    pop_Abs = get_loguniform_Ab_titers(pop_to_simulate)
+    risk = sigmoid(pop_Abs, steepness, mid_point, saturating_point)
+
+    # Generate controls
+    controls = np.random.choice(pop_Abs, num_desired_controls, replace=False)
+    Ab_titers = np.concatenate((Ab_titers, controls))
+    test_results = np.concatenate(
+        (test_results, np.zeros(num_desired_controls))
+    )
+
+    # Generate cases
+    cases = np.random.choice(
+        pop_Abs, num_desired_cases, replace=False, p=(risk / np.sum(risk))
+    )
+    Ab_titers = np.concatenate((Ab_titers, cases))
+    test_results = np.concatenate((test_results, np.ones(num_desired_cases)))
+
+    return [Ab_titers, test_results]
+
+
+# Define the scaled logit model
+def scaled_logit(x, k, beta_0, beta_1):
     """
-    return 1 - ((risk / (1 - risk)) / (risk.max() / (1 - risk.max())))
+    Scaled logistic function
+
+    Parameters:
+    x (array-like): Input values.
+    k (float): Maximum value (scale).
+    beta_0 (float): Intercept parameter for linear regression
+    beta_1 (float): Slope parameter.
+
+    Returns:
+    array-like: Scaled logistic function values.
+    """
+    return k / (1 + np.exp(beta_0 + beta_1 * x))
 
 
-# %% Recreate Casey's simulation.
+def neg_log_likelihood_scaled_logit(params, data, lambda_reg=0.1):
+    # unpack data
+    k, beta_0, beta_1 = params
+    Abs = np.array(data[0])
+    infected = np.array(data[1])
+
+    # Get likelihood
+    epsilon = 1e-10  # To prevent log(0)
+    prob_pos = infected * np.log(
+        np.clip(scaled_logit(Abs, k, beta_0, beta_1), epsilon, 1 - epsilon)
+    )
+    prob_neg = (1 - infected) * np.log(
+        np.clip(1 - scaled_logit(Abs, k, beta_0, beta_1), epsilon, 1 - epsilon)
+    )
+
+    # Add L2 regularization penalty on beta_1 to discourage steep slopes
+    regularization_penalty = lambda_reg * beta_1**2
+
+    return -1 * np.sum(prob_pos + prob_neg) + regularization_penalty
+
+
+# Modified function to fit the scaled logit model with regularization
+def fit_scaled_logit(
+    x_data, y_data, lambda_reg=0.1, initial_guess=(0.5, -1, 1)
+):
+    """
+    Fit the scaled logistic regression model with regularization to avoid steep slopes.
+
+    Parameters:
+    x_data (array-like): Independent variable values.
+    y_data (array-like): Dependent variable values.
+    lambda_reg (float): Regularization parameter. Higher values penalize steeper slopes more.
+    initial_guess (tuple): Initial guesses for k, beta_0, and beta_1.
+
+    Returns:
+    tuple: Fitted parameters (k, beta_0, beta_1).
+    """
+    data = [x_data, y_data]
+
+    result = minimize(
+        neg_log_likelihood_scaled_logit,
+        initial_guess,
+        method="Nelder-Mead",
+        args=(data, lambda_reg),
+        options={
+            "xatol": 1e-10,
+            "fatol": 1e-10,
+            "maxiter": 10000,
+            "maxfev": 20000,
+        },
+    )
+
+    if not result.success:
+        print("Did not find optimal parameter fit to minimize likelihood")
+    return result.x
+
+
+# %% Simulate TND data, subset for plotting, fit risk function, and convert to protection
+TND = generate_TND_data(
+    N, SIGMOID_SLOPE, SIGMOID_MID, SIGMOID_MAX, CONTROLS_PER_CASE
+)
+Ab_logged = TND[0]
+infected = TND[1]
+Ab_logged_plot, infected_plot = generate_paired_samples(
+    N_PLOT, Ab_logged, infected
+)
+infected_plot = jitter_vector(infected_plot, 0.1)
+potential_Ab_logged = np.arange(min(Ab_logged), max(Ab_logged), 0.01)
+true_risk = sigmoid(
+    potential_Ab_logged, SIGMOID_SLOPE, SIGMOID_MID, SIGMOID_MAX
+)
+true_protection = 1 - true_risk / SIGMOID_MAX
+
+# Fit scaled logistic model
+fitted_params = fit_scaled_logit(Ab_logged, infected)
+fitted_k, fitted_beta_0, fitted_beta_1 = fitted_params
+fitted_risk = scaled_logit(
+    potential_Ab_logged, fitted_k, fitted_beta_0, fitted_beta_1
+)
+fitted_protection = one_minus_OR(fitted_risk)
+
+# %% Plot TND data, true risk curve, and frequentist fitted risk curve
+plot = (
+    (
+        alt.Chart(
+            pl.DataFrame({"titer": Ab_logged_plot, "status": infected_plot})
+        )
+        .mark_point(opacity=0.1, color="black")
+        .encode(x="titer:Q", y="status:Q")
+    )
+    + alt.Chart(
+        pl.DataFrame({"titer": potential_Ab_logged, "risk": fitted_risk})
+    )
+    .mark_line(color="green", strokeWidth=5)
+    .encode(
+        x=alt.X(
+            "titer:Q",
+            title="Titer",
+            axis=alt.Axis(grid=False),
+        ),
+        y=alt.Y("risk:Q", title="Risk", axis=alt.Axis(grid=False)),
+    )
+    + alt.Chart(
+        pl.DataFrame({"titer": potential_Ab_logged, "risk": true_risk})
+    )
+    .mark_line(color="black", strokeDash=[3, 3])
+    .encode(x="titer:Q", y="risk:Q")
+)
+plot.display()
+
+# %% Plot TND data, true protection curve, and frequentist fitted protection curve
+plot = (
+    (
+        alt.Chart(
+            pl.DataFrame({"titer": Ab_logged_plot, "status": infected_plot})
+        )
+        .mark_point(opacity=0.1, color="black")
+        .encode(x="titer:Q", y="status:Q")
+    )
+    + alt.Chart(
+        pl.DataFrame(
+            {"titer": potential_Ab_logged, "protection": fitted_protection}
+        )
+    )
+    .mark_line(color="green", strokeWidth=5)
+    .encode(
+        x=alt.X(
+            "titer:Q",
+            title="Titer",
+            scale=alt.Scale(padding=0),
+            axis=alt.Axis(grid=False),
+        ),
+        y=alt.Y("protection:Q", title="Protection", axis=alt.Axis(grid=False)),
+    )
+    + alt.Chart(
+        pl.DataFrame(
+            {"titer": potential_Ab_logged, "protection": true_protection}
+        )
+    )
+    .mark_line(color="black", strokeDash=[3, 3])
+    .encode(x="titer:Q", y="protection:Q")
+)
+plot.display()
+
+
+# %% Build a numpyro model of protection
+def fit_scaled_logit_bayesian(
+    titer,
+    infected,
+    slope_shape=2.0,
+    slope_rate=2.0,
+    midpoint_shape=8.0,
+    midpoint_rate=2.0,
+    max_risk_shape1=5.0,
+    max_risk_shape2=1.0,
+):
+    slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
+    midpoint = numpyro.sample(
+        "midpoint", dist.Gamma(midpoint_shape, midpoint_rate)
+    )
+    max_risk = numpyro.sample(
+        "max_risk", dist.Beta(max_risk_shape1, max_risk_shape2)
+    )
+    mu = max_risk / (1 + jnp.exp(slope * (titer - midpoint)))
+    numpyro.sample("obs", dist.Binomial(probs=mu), obs=infected)
+
+
+# %% Fit the numpyro model of protection
+NUM_SAMPLES = 200
+kernel = NUTS(fit_scaled_logit_bayesian, init_strategy=init_to_sample)
+mcmc = MCMC(kernel, num_warmup=1000, num_samples=NUM_SAMPLES, num_chains=4)
+mcmc.run(random.key(0), titer=Ab_logged, infected=infected)
+mcmc.print_summary()
+
+# %% Prepare bayesian posterior samples for plotting
+mcmc_samples = mcmc.get_samples()
+prot = []
+for i in range(NUM_SAMPLES):
+    new_prot_infer = (
+        pl.DataFrame({"titer": potential_Ab_logged})
+        .with_columns(
+            risk=sigmoid(
+                pl.col("titer"),
+                mcmc_samples["slope"][i],
+                mcmc_samples["midpoint"][i],
+                mcmc_samples["max_risk"][i],
+            ),
+            sample_id=pl.lit(i),
+        )
+        .with_columns(
+            protection=1
+            - (pl.col("risk") / (1 - pl.col("risk")))
+            / (pl.col("risk").max() / (1 - pl.col("risk").max()))
+        )
+    )
+    prot.append(new_prot_infer)
+prot_infer = pl.concat(prot)
+
+# %% Plot TND data, true risk curve, and bayesian fitted risk curve
+alt.data_transformers.disable_max_rows()
+plot = (
+    (
+        alt.Chart(
+            pl.DataFrame({"titer": Ab_logged_plot, "status": infected_plot})
+        )
+        .mark_point(opacity=0.1, color="black")
+        .encode(x="titer:Q", y="status:Q")
+    )
+    + alt.Chart(pl.DataFrame(prot_infer))
+    .mark_line(color="green", opacity=2 / NUM_SAMPLES)
+    .encode(
+        x=alt.X(
+            "titer:Q",
+            title="Titer",
+            axis=alt.Axis(grid=False),
+        ),
+        y=alt.Y("risk:Q", title="Risk", axis=alt.Axis(grid=False)),
+        detail="sample_id",
+    )
+    + alt.Chart(
+        pl.DataFrame({"titer": potential_Ab_logged, "risk": true_risk})
+    )
+    .mark_line(color="black", strokeDash=[3, 3])
+    .encode(x="titer:Q", y="risk:Q")
+)
+plot.display()
+
+# %% Plot TND data, true protection curve, and bayesian fitted protection curve
+alt.data_transformers.disable_max_rows()
+plot = (
+    (
+        alt.Chart(
+            pl.DataFrame({"titer": Ab_logged_plot, "status": infected_plot})
+        )
+        .mark_point(opacity=0.1, color="black")
+        .encode(x="titer:Q", y="status:Q")
+    )
+    + alt.Chart(pl.DataFrame(prot_infer))
+    .mark_line(color="green", opacity=2 / NUM_SAMPLES)
+    .encode(
+        x=alt.X(
+            "titer:Q",
+            title="Titer",
+            axis=alt.Axis(grid=False),
+        ),
+        y=alt.Y("protection:Q", title="Protection", axis=alt.Axis(grid=False)),
+        detail="sample_id",
+    )
+    + alt.Chart(
+        pl.DataFrame(
+            {"titer": potential_Ab_logged, "protection": true_protection}
+        )
+    )
+    .mark_line(color="black", strokeDash=[3, 3])
+    .encode(x="titer:Q", y="protection:Q")
+)
+plot.display()
+
+# %% Recreate Casey's simulation. #################################################
 POP_SIZE = 10000
 CASES = 1000
 CONTROLS = 4000
