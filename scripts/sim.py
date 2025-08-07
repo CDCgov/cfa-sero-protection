@@ -567,23 +567,22 @@ alt.Chart(vax_plot).mark_line().encode(
 
 # %% Plot the antibody protection curve
 pro_plot = (
-    pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))})
+    pl.DataFrame({"ab": np.arange(0, AB_SPIKE[1], 0.01)})
     .with_columns(
         risk=calculate_risk(
             pl.col("ab"),
             AB_RISK_SLOPE,
             AB_RISK_MIDPOINT,
-            AB_RISK_MIN,
             AB_RISK_MAX,
         )
     )
-    .with_columns(protection=calculate_protection(pl.col("risk")))
+    .with_columns(protection=1 - pl.col("risk") / AB_RISK_MAX)
 )
-alt.Chart(pro_plot).mark_line().encode(
+alt.Chart(pro_plot).mark_line(color="black").encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
 )
-alt.Chart(pro_plot).mark_line().encode(
+alt.Chart(pro_plot).mark_line(color="black").encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y(
         "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
@@ -608,7 +607,9 @@ xsec_data = (
 )
 
 xsec_real = (
-    all_data.filter((pl.col("day") >= 50) & (pl.col("day") <= 56))
+    all_data.filter(
+        (pl.col("day") >= XSEC_WINDOW[0]) & (pl.col("day") < XSEC_WINDOW[1])
+    )
     .select(["id", "ab", "day"])
     .rename({"id": "pop_id", "ab": "titer"})
     .with_columns(
@@ -619,12 +620,12 @@ xsec_real = (
 # %% Plot serosurvey titer distribution vs. true values
 xsec_data_dens = sps.TiterSamples(
     xsec_data,
-    pl.DataFrame({"titer": [0.0, 1000.0]}).with_row_index("pop_id"),
+    pl.DataFrame({"titer": [0.0, 10.0]}).with_row_index("pop_id"),
 ).to_density(values="titer", groups="day")
 
 xsec_real_dens = sps.TiterSamples(
     xsec_real,
-    pl.DataFrame({"titer": [0.0, 1000.0]}).with_row_index("pop_id"),
+    pl.DataFrame({"titer": [0.0, 10.0]}).with_row_index("pop_id"),
 ).to_density(values="titer", groups="day")
 
 alt.data_transformers.disable_max_rows()
@@ -650,79 +651,51 @@ tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
 tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
 
 
-# %% Build a numpyro model of protection
-def dslogit_model(
-    titer,
-    infected,
-    slope_shape=2.0,
-    slope_rate=150,
-    midpoint_shape=500.0,
-    midpoint_rate=1.0,
-    min_risk_shape1=1.0,
-    min_risk_shape2=10.0,
-    max_risk_shape1=10.0,
-    max_risk_shape2=1.0,
-):
-    slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
-    midpoint = numpyro.sample(
-        "midpoint", dist.Gamma(midpoint_shape, midpoint_rate)
-    )
-    min_risk = numpyro.sample(
-        "min_risk", dist.Beta(min_risk_shape1, min_risk_shape2)
-    )
-    max_risk = numpyro.sample(
-        "max_risk", dist.Beta(max_risk_shape1, max_risk_shape2)
-    )
-    mu = min_risk + (max_risk - min_risk) / (
-        1 + jnp.exp(slope * (titer - midpoint))
-    )
-    numpyro.sample("obs", dist.Binomial(probs=mu), obs=infected)
-
-
 # %% Fit the numpyro model of protection
+NUM_SAMPLES = 200
 titer = tnd_data["ab"].to_numpy()
 infected = tnd_data["inf_status"].to_numpy() * 1
-kernel = NUTS(dslogit_model, init_strategy=init_to_sample)
-mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=4)
+kernel = NUTS(fit_scaled_logit_bayesian, init_strategy=init_to_sample)
+mcmc = MCMC(kernel, num_warmup=1000, num_samples=NUM_SAMPLES, num_chains=4)
 mcmc.run(random.key(0), titer=titer, infected=infected)
 mcmc.print_summary()
 
 # %% Plot the true protection curve vs. the inferred curve
 prot_real = (
-    pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))})
+    pl.DataFrame({"ab": np.arange(0, AB_SPIKE[1], 0.01)})
     .with_columns(
         risk=calculate_risk(
             pl.col("ab"),
             AB_RISK_SLOPE,
             AB_RISK_MIDPOINT,
-            AB_RISK_MIN,
             AB_RISK_MAX,
         )
     )
-    .with_columns(protection=calculate_protection(pl.col("risk")))
+    .with_columns(protection=1 - pl.col("risk") / AB_RISK_MAX)
 )
 mcmc_samples = mcmc.get_samples()
 prot = []
 for i in range(1000):
     new_prot_infer = (
-        pl.DataFrame({"ab": range(0, round(AB_SPIKE[1]))})
+        pl.DataFrame({"ab": np.arange(0, AB_SPIKE[1], 0.01)})
         .with_columns(
             risk=calculate_risk(
                 pl.col("ab"),
                 mcmc_samples["slope"][i],
                 mcmc_samples["midpoint"][i],
-                mcmc_samples["min_risk"][i],
                 mcmc_samples["max_risk"][i],
             ),
             sample_id=pl.lit(i),
         )
-        .with_columns(protection=calculate_protection(pl.col("risk")))
+        .with_columns(protection=calculate_oddsratio(pl.col("risk")))
     )
     prot.append(new_prot_infer)
 prot_infer = pl.concat(prot)
 
 alt.data_transformers.disable_max_rows()
-output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+output = alt.Chart(prot_infer).mark_line(
+    opacity=2 / NUM_SAMPLES, color="black"
+).encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
     detail="sample_id",
@@ -733,7 +706,9 @@ output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
 output.display()
 
 alt.data_transformers.disable_max_rows()
-output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
+output = alt.Chart(prot_infer).mark_line(
+    opacity=2 / NUM_SAMPLES, color="black"
+).encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y(
         "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
@@ -746,3 +721,5 @@ output = alt.Chart(prot_infer).mark_line(opacity=0.01, color="black").encode(
     ),
 )
 output.display()
+
+# %%
