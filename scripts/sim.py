@@ -18,10 +18,10 @@ import seropro.samples as sps
 # %% Set parameters and establish functions to recreate Casey's results
 N = 10000
 N_PLOT = 1000
-CONTROLS_PER_CASE = 4
+CONTROLS_PER_CASE = 1
 SIGMOID_MAX = 0.5
-SIGMOID_SLOPE = 2.0
-SIGMOID_MID = 6.0
+SIGMOID_SLOPE = 1.0
+SIGMOID_MID = 4.0
 SIGMOID_PARS = {
     "steepness": SIGMOID_SLOPE,
     "mid_point": SIGMOID_MID,
@@ -267,12 +267,12 @@ plot.display()
 def fit_scaled_logit_bayesian(
     titer,
     infected,
-    slope_shape=2.0,
-    slope_rate=2.0,
-    midpoint_shape=8.0,
-    midpoint_rate=2.0,
+    slope_shape=8.0,
+    slope_rate=4.0,
+    midpoint_shape=20.0,
+    midpoint_rate=4.0,
     max_risk_shape1=5.0,
-    max_risk_shape2=1.0,
+    max_risk_shape2=2.0,
 ):
     slope = numpyro.sample("slope", dist.Gamma(slope_shape, slope_rate))
     midpoint = numpyro.sample(
@@ -376,27 +376,25 @@ plot = (
 )
 plot.display()
 
-# %% EVERYTHING BELOW IS SCRATCHWORK FOR MORE COMPLICATED STUFF
-
 # %% Define parameters
 POP_SIZE = 10000
 NUM_DAYS = 100
 AB_RISK_SLOPE = 2
 AB_RISK_MIDPOINT = 6
-AB_RISK_MAX = 0.9
+AB_RISK_MAX = 0.75
 AB_RISK_MIDPOINT_DROP = 0.0
 AB_DECAY = [0.9, 1.0]
 AB_SPIKE = [8, 10]
-NONAB_BIAS = 0
-NONAB_NOISE = 0
+NONAB_BIAS = -2
+NONAB_NOISE = 1
 NONAB_RISK_SLOPE = 2
 NONAB_RISK_MIDPOINT = 6
-NONAB_RISK_MAX = 0.9
+NONAB_RISK_MAX = 0.75
 NONAB_RISK_MIDPOINT_DROP = 0.0
 NONAB_DECAY = [0.9, 1.0]
 LAG = 4
 FORCE_EXP = 0.1
-FORCE_VAX = 0.02
+FORCE_VAX = 0.01
 RECOVERY = 0.25
 XSEC_SIZE = 100
 XSEC_WINDOW = [50, 57]
@@ -452,10 +450,10 @@ for i in range(NUM_DAYS):
                 )
             )
             .with_columns(
-                nonab=pl.col("ab")
-                + pl.Series(
-                    np.random.normal(NONAB_BIAS, NONAB_NOISE, POP_SIZE)
-                ).clip(lower_bound=0.0)
+                nonab=pl.col("nonab")
+                * pl.Series(
+                    np.random.uniform(NONAB_DECAY[0], NONAB_DECAY[1], POP_SIZE)
+                )
             )
             .with_columns(
                 inf_new_lag=daily_data[max(0, i - LAG)]["inf_new"],
@@ -465,17 +463,18 @@ for i in range(NUM_DAYS):
                 ab=pl.when(pl.col("inf_new_lag") | pl.col("vax_new_lag"))
                 .then(
                     pl.Series(
-                        "ab",
                         np.random.uniform(AB_SPIKE[0], AB_SPIKE[1], POP_SIZE),
                     )
                 )
-                .otherwise(pl.col("ab")),
+                .otherwise(pl.col("ab"))
+            )
+            .with_columns(
                 nonab=pl.when(pl.col("inf_new_lag") | pl.col("vax_new_lag"))
                 .then(
-                    pl.Series(
-                        "nonab",
+                    pl.col("ab")
+                    + pl.Series(
                         np.random.normal(NONAB_BIAS, NONAB_NOISE, POP_SIZE),
-                    ).clip(lower_bound=0.0)
+                    )
                 )
                 .otherwise(pl.col("nonab")),
             )
@@ -541,26 +540,18 @@ for i in range(NUM_DAYS):
 
     daily_data.append(new_daily_data)
 
-all_data = pl.concat(daily_data).select(
-    "id",
-    "day",
-    "inf_status",
-    "inf_new",
-    "vax_status",
-    "ab",
-    "nonab",
-)
+all_data = pl.concat(daily_data)
 
 # %% Plot number of people currently infected through time
 inf_plot = all_data.group_by("day").agg(pl.col("inf_status").sum())
-alt.Chart(inf_plot).mark_line().encode(
+alt.Chart(inf_plot).mark_line(color="black").encode(
     x=alt.X("day:Q", title="Day"),
     y=alt.Y("inf_status:Q", title="Current Number Infected"),
 )
 
 # %% Plot number of people cumulatively vaccinated through time
 vax_plot = all_data.group_by("day").agg(pl.col("vax_status").sum())
-alt.Chart(vax_plot).mark_line().encode(
+alt.Chart(vax_plot).mark_line(color="black").encode(
     x=alt.X("day:Q", title="Day"),
     y=alt.Y("vax_status:Q", title="Cumulative Number Vaccinated"),
 )
@@ -578,16 +569,99 @@ pro_plot = (
     )
     .with_columns(protection=1 - pl.col("risk") / AB_RISK_MAX)
 )
-alt.Chart(pro_plot).mark_line(color="black").encode(
+alt.Chart(pro_plot).mark_line(color="black", strokeDash=[3, 3]).encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
 )
-alt.Chart(pro_plot).mark_line(color="black").encode(
+alt.Chart(pro_plot).mark_line(color="black", strokeDash=[3, 3]).encode(
     x=alt.X("ab:Q", title="Antibody Titer"),
     y=alt.Y(
         "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
     ),
 )
+# %% Plot antibody dynamics across 100 days for 15 randomly selected individuals
+plot_sub_data = all_data.filter(
+    pl.col("id").is_in(all_data.select("id").sample(n=5)["id"].to_list())
+).with_columns(id=pl.col("id").cast(pl.String))
+alt.data_transformers.disable_max_rows()
+plot = (
+    alt.Chart(plot_sub_data)
+    .mark_line(color="black", opacity=0.8)
+    .encode(
+        x=alt.X(
+            "day:Q",
+            title="Day",
+        ),
+        y=alt.Y("ab:Q", title="Antibody Titer"),
+        color="id",
+    )
+)
+plot.display()
+
+
+# %% Plot antibody dynamics for 100 randomly selected exposure events
+plot_data = (
+    all_data.with_columns(any_new=pl.col("inf_new") | pl.col("vax_new"))
+    .with_columns(
+        exposure_count=pl.col("any_new").cast(pl.UInt32).cum_sum().over("id")
+    )
+    .with_columns(
+        days_since_exposure=pl.int_range(0, pl.len()).over(
+            ["id", "exposure_count"]
+        ),
+        exposure_id=pl.struct(["id", "exposure_count"]).rank(method="dense"),
+    )
+    .filter(pl.col("exposure_count") > 0)
+)
+
+plot_sub_data = plot_data.filter(
+    pl.col("exposure_id").is_in(
+        plot_data.select("exposure_id").sample(n=100)["exposure_id"].to_list()
+    )
+)
+
+alt.data_transformers.disable_max_rows()
+plot = (
+    alt.Chart(plot_sub_data)
+    .mark_line(color="black", opacity=0.1)
+    .encode(
+        x=alt.X(
+            "days_since_exposure:Q",
+            title="Days Since Exposure",
+        ),
+        y=alt.Y("ab:Q", title="Antibody Titer"),
+        detail="exposure_id",
+    )
+)
+plot.display()
+
+# %% Plot mean antibody and nonantibody titers through time
+plot_data = (
+    all_data.group_by("day")
+    .agg(
+        ab_mean=pl.col("ab").mean(),
+        nonab_mean=pl.col("nonab").mean(),
+    )
+    .unpivot(index="day", variable_name="component", value_name="titer")
+    .with_columns(
+        component=pl.col("component").replace_strict(
+            {"ab_mean": "ab", "nonab_mean": "non_ab"}
+        )
+    )
+)
+plot = (
+    alt.Chart(plot_data)
+    .mark_line()
+    .encode(
+        x=alt.X(
+            "day:Q",
+            title="Day",
+        ),
+        y=alt.Y("titer:Q", title="Population Average Titer"),
+        color="component",
+    )
+)
+plot.display()
 
 # %% Collect a cross sectional serosurvey
 xsec_samples = pl.DataFrame(
@@ -650,6 +724,22 @@ tnd_non_samples = all_data.filter(~pl.col("inf_status")).sample(
 )
 tnd_data = pl.concat([tnd_inf_samples, tnd_non_samples])
 
+# %% Plot number of cases and controls sampled each day
+plot_data = tnd_data.group_by(["day", "inf_status"]).len()
+plot = (
+    alt.Chart(plot_data)
+    .mark_line()
+    .encode(
+        x=alt.X(
+            "day:Q",
+            title="Day",
+        ),
+        y=alt.Y("len:Q", title="Number Sampled"),
+        color="inf_status",
+    )
+)
+plot.display()
+
 
 # %% Fit the numpyro model of protection
 NUM_SAMPLES = 200
@@ -660,7 +750,7 @@ mcmc = MCMC(kernel, num_warmup=1000, num_samples=NUM_SAMPLES, num_chains=4)
 mcmc.run(random.key(0), titer=titer, infected=infected)
 mcmc.print_summary()
 
-# %% Plot the true protection curve vs. the inferred curve
+# %% Prepare posterior samples to plot true risk/protection vs. inferred
 prot_real = (
     pl.DataFrame({"ab": np.arange(0, AB_SPIKE[1], 0.01)})
     .with_columns(
@@ -692,33 +782,61 @@ for i in range(1000):
     prot.append(new_prot_infer)
 prot_infer = pl.concat(prot)
 
+# %% Plot true risk vs. inferred
 alt.data_transformers.disable_max_rows()
-output = alt.Chart(prot_infer).mark_line(
-    opacity=2 / NUM_SAMPLES, color="black"
-).encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
-    detail="sample_id",
-) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y("risk:Q", title="Risk", scale=alt.Scale(domain=[0, 1])),
+output = (
+    (
+        alt.Chart(
+            tnd_data.with_columns(
+                inf_status=pl.col("inf_status") * 1
+                + np.random.uniform(-0.1, 0.1, tnd_data.height)
+            ).sample(n=1000)
+        )
+        .mark_point(opacity=0.1, color="black")
+        .encode(x="ab:Q", y="inf_status:Q")
+    )
+    + alt.Chart(prot_infer)
+    .mark_line(opacity=2 / NUM_SAMPLES, color="green")
+    .encode(
+        x=alt.X("ab:Q", title="Antibody Titer"),
+        y=alt.Y("risk:Q", title="Risk"),
+        detail="sample_id",
+    )
+    + alt.Chart(prot_real)
+    .mark_line(color="black", strokeDash=[3, 3])
+    .encode(
+        x=alt.X("ab:Q", title="Antibody Titer"),
+        y=alt.Y("risk:Q", title="Risk"),
+    )
 )
 output.display()
 
+# %% Plot true protection vs. inferred
 alt.data_transformers.disable_max_rows()
-output = alt.Chart(prot_infer).mark_line(
-    opacity=2 / NUM_SAMPLES, color="black"
-).encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y(
-        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
-    ),
-    detail="sample_id",
-) + alt.Chart(prot_real).mark_line(opacity=1.0, color="green").encode(
-    x=alt.X("ab:Q", title="Antibody Titer"),
-    y=alt.Y(
-        "protection:Q", title="Protection", scale=alt.Scale(domain=[0, 1])
-    ),
+output = (
+    (
+        alt.Chart(
+            tnd_data.with_columns(
+                inf_status=pl.col("inf_status") * 1
+                + np.random.uniform(-0.1, 0.1, tnd_data.height)
+            ).sample(n=1000)
+        )
+        .mark_point(opacity=0.1, color="black")
+        .encode(x="ab:Q", y="inf_status:Q")
+    )
+    + alt.Chart(prot_infer)
+    .mark_line(opacity=2 / NUM_SAMPLES, color="green")
+    .encode(
+        x=alt.X("ab:Q", title="Antibody Titer"),
+        y=alt.Y("protection:Q", title="Protection"),
+        detail="sample_id",
+    )
+    + alt.Chart(prot_real)
+    .mark_line(color="black", strokeDash=[3, 3])
+    .encode(
+        x=alt.X("ab:Q", title="Antibody Titer"),
+        y=alt.Y("protection:Q", title="Protection"),
+    )
 )
 output.display()
 
