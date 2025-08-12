@@ -1,6 +1,4 @@
 # %% Import modules
-import sys
-
 import altair as alt
 import jax.numpy as jnp
 import numpy as np
@@ -11,9 +9,6 @@ from jax import random
 from numpyro.infer import MCMC, NUTS, init_to_sample
 from scipy.optimize import minimize
 from scipy.stats import loguniform
-
-sys.path.append("/home/tec0/cfa-sero-protection")
-import seropro.samples as sps
 
 # %% Set parameters and establish functions to recreate Casey's results
 N = 10000
