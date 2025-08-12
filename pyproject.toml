@@ -1,26 +1,23 @@
-[tool.poetry]
+[project]
 name = "seropro"
 version = "0.1.0"
-description = ""
+description = "Tools for inferring immune protection from serology"
 authors = ["Edward Schrom <tec0@cdc.gov>"]
 readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "polars>=1.24.0",
+    "numpy>=2.2.3",
+    "altair>=5.5.0",
+    "scipy>=1.15.2",
+    "numpyro>=0.18.0",
+    "jax>=0.6.2",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-polars = "^1.24.0"
-numpy = "^2.2.3"
-altair = "^5.5.0"
-scipy = "^1.15.2"
-numpyro = "^0.18.0"
-jax = "^0.6.2"
-
-
-[tool.poetry.group.dev.dependencies]
-ipykernel = "^6.29.5"
-pre-commit = "^4.2.0"
-detect-secrets = "^1.5.0"
-pytest = "^8.3.5"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+    "pre-commit>=4.2.0",
+    "detect-secrets>=1.5.0",
+    "pytest>=8.3.5"
+]
