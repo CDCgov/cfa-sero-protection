@@ -658,58 +658,6 @@ plot = (
 )
 plot.display()
 
-# %% Collect a cross sectional serosurvey
-xsec_samples = pl.DataFrame(
-    {
-        "id": np.random.choice(POP_SIZE, XSEC_SIZE, replace=False),
-        "day": np.random.choice(
-            np.arange(XSEC_WINDOW[0], XSEC_WINDOW[1]), XSEC_SIZE
-        ),
-    }
-)
-
-xsec_data = (
-    all_data.join(xsec_samples, ["id", "day"], "semi")
-    .select(["id", "ab"])
-    .rename({"id": "pop_id", "ab": "titer"})
-    .with_columns(pl.col("pop_id").cast(pl.UInt32), day=pl.lit("50-56"))
-)
-
-xsec_real = (
-    all_data.filter(
-        (pl.col("day") >= XSEC_WINDOW[0]) & (pl.col("day") < XSEC_WINDOW[1])
-    )
-    .select(["id", "ab", "day"])
-    .rename({"id": "pop_id", "ab": "titer"})
-    .with_columns(
-        pl.col("pop_id").cast(pl.UInt32), pl.col("day").cast(pl.String)
-    )
-)
-
-# %% Plot serosurvey titer distribution vs. true values
-xsec_data_dens = sps.TiterSamples(
-    xsec_data,
-    pl.DataFrame({"titer": [0.0, 10.0]}).with_row_index("pop_id"),
-).to_density(values="titer", groups="day")
-
-xsec_real_dens = sps.TiterSamples(
-    xsec_real,
-    pl.DataFrame({"titer": [0.0, 10.0]}).with_row_index("pop_id"),
-).to_density(values="titer", groups="day")
-
-alt.data_transformers.disable_max_rows()
-output = alt.Chart(xsec_real_dens).mark_line(
-    opacity=0.1, color="green"
-).encode(
-    x=alt.X("titer:Q", title="Titer"),
-    y=alt.Y("density:Q", title="Density"),
-    detail="day",
-) + alt.Chart(xsec_data_dens).mark_line(opacity=1.0, color="black").encode(
-    x=alt.X("titer:Q"),
-    y=alt.Y("density:Q"),
-)
-output.display()
-
 # %% Conduct a TND serosurvey
 tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
     fraction=TND_INF_PRB
