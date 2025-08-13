@@ -380,7 +380,7 @@ AB_RISK_MAX = 0.75
 AB_RISK_MIDPOINT_DROP = 0.0
 AB_DECAY = [0.9, 1.0]
 AB_SPIKE = [8, 10]
-NONAB_BIAS = -2
+NONAB_BIAS = 2
 NONAB_NOISE = 1
 NONAB_RISK_SLOPE = 2
 NONAB_RISK_MIDPOINT = 6
@@ -656,6 +656,27 @@ plot = (
         color="component",
     )
 )
+plot.display()
+
+# %% Plot correlation of nonAb with Ab values
+alt.data_transformers.disable_max_rows()
+plot = (
+    alt.Chart(
+        all_data.filter((pl.col("ab") > 0) | (pl.col("nonab") > 0)).sample(
+            n=500
+        )
+    )
+    .mark_point(color="black", opacity=0.5)
+    .encode(
+        x=alt.X(
+            "ab:Q",
+            title="Antibody Titer",
+        ),
+        y=alt.Y("nonab:Q", title="Non-Antibody Titer"),
+    )
+) + alt.Chart(pl.DataFrame({"x": range(11), "y": range(11)})).mark_line(
+    color="black", strokeDash=[10, 10]
+).encode(x="x:Q", y="y:Q")
 plot.display()
 
 # %% Conduct a TND serosurvey
