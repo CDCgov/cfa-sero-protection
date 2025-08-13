@@ -658,6 +658,27 @@ plot = (
 )
 plot.display()
 
+# %% Plot correlation of nonAb with Ab values
+alt.data_transformers.disable_max_rows()
+plot = (
+    alt.Chart(
+        all_data.filter((pl.col("ab") > 0) | (pl.col("nonab") > 0)).sample(
+            n=500
+        )
+    )
+    .mark_point()
+    .encode(
+        x=alt.X(
+            "ab:Q",
+            title="Antibody Titer",
+        ),
+        y=alt.Y("nonab:Q", title="Non-Antibody Titer"),
+    )
+) + alt.Chart(pl.DataFrame({"x": range(11), "y": range(11)})).mark_line(
+    color="black", strokeDash=[5, 5]
+).encode(x="x:Q", y="y:Q")
+plot.display()
+
 # %% Conduct a TND serosurvey
 tnd_inf_samples = all_data.filter(pl.col("inf_new")).sample(
     fraction=TND_INF_PRB
